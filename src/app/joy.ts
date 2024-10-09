@@ -1,0 +1,12 @@
+export const BUTTON_UP = 0x0001;
+export const BUTTON_DOWN = 0x0002;
+export const BUTTON_LEFT = 0x0004;
+export const BUTTON_RIGHT = 0x0008;
+export const BUTTON_A = 0x0040;
+export const BUTTON_B = 0x0010;
+export const BUTTON_C = 0x0020;
+export const BUTTON_START = 0x0080;
+export const BUTTON_X = 0x0400;
+export const BUTTON_Y = 0x0200;
+export const BUTTON_Z = 0x0100;
+export const BUTTON_MODE = 0x0800;

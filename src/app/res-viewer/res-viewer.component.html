@@ -1,0 +1,54 @@
+<canvas id="metaTileCanvas" width="10240" height="1280"></canvas>
+
+<div
+  class="d-flex w-100 align-items-center"
+  *ngFor="let palette of palettes; index as paletteIndex"
+>
+  <div class="palette-label">Palette {{ paletteIndex + 1 }}</div>
+  <div class="pixel-row d-flex" *ngFor="let color of palette; index as index">
+    <div
+      style="background-color: #{{ evenPixel(index, paletteIndex) }}"
+      class="pixel"
+    ></div>
+  </div>
+</div>
+
+<div
+  style="height: {{ totalHeight }}px"
+  class="align-content-start d-flex flex-wrap position-relative overflow-hidden"
+>
+  <div
+    class="d-flex flex-wrap position-absolute"
+    style="top: {{ topOffset }}px"
+  >
+    <div
+      class="tile flex-column d-flex"
+      *ngFor="let tile of tiles"
+      ng-init="tileIndex=$index + ($ctrl.topOffset / 160 * 5)"
+    >
+      <div
+        class="pixel-row d-flex"
+        *ngFor="let row of tile"
+        ng-repeat="row in tile track by $index"
+        ng-init="rowIndex=$index"
+      >
+        <div class="d-flex" ng-repeat="byte in row track by $index" *ngFor="let byte of row">
+          <div
+            ng-init="byteIndex=tileIndex * 64 + rowIndex * 8 + $index * 2"
+            style="background-color: #{{ oddPixel(byte, 0) }}"
+            class="pixel"
+            ng-mouseover="$ctrl.displayPixelTooltip($event, byteIndex, tileIndex, rowIndex, $index * 2, byte)"
+            ng-class="{ hovered: $ctrl.hovered === byteIndex }"
+          ></div>
+          <div
+            ng-init="byteIndex2=tileIndex * 64 + rowIndex * 8 + $index * 2 + 1"
+            style="background-color: #{{ evenPixel(byte, 0) }}"
+            class="pixel"
+            ng-mouseover="$ctrl.displayPixelTooltip($event, byteIndex2, tileIndex, rowIndex, $index * 2 + 1, byte)"
+            ng-class="{ hovered: $ctrl.hovered === byteIndex2 }"
+          ></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -40,3 +40,6 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
+
+# Contains generated C code and resources, exclude for now
+public/*

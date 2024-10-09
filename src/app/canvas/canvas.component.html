@@ -1,0 +1,39 @@
+<canvas #canvas></canvas>
+<div style="position: absolute; bottom: 0px">
+  {{ xCoord }}x{{ yCoord }}
+  <div class="form-check">
+    <input
+      class="form-check-input"
+      type="checkbox"
+      [(ngModel)]="clipViewport"
+      (ngModelChange)="onClipViewportChange()"
+      id="clipViewportCheck"
+    />
+    <label class="form-check-label" for="clipViewportCheck">
+      Clip viewport
+    </label>
+  </div>
+  <div class="form-check">
+    <input
+      class="form-check-input"
+      type="checkbox"
+      [(ngModel)]="drawGrid"
+      id="drawGridCheck"
+    />
+    <label class="form-check-label" for="drawGridCheck">
+      Draw grid
+    </label>
+  </div>
+  <div class="form-check">
+    <input
+      class="form-check-input"
+      type="checkbox"
+      [(ngModel)]="shouldAnimate"
+      id="shouldAnimateCheck"
+    />
+    <label class="form-check-label" for="shouldAnimateCheck">
+      Animate?
+    </label>
+  </div>
+  <input type="number" [(ngModel)]="camPosYOffset">
+</div>

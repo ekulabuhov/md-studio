@@ -15,6 +15,20 @@
       "request": "launch",
       "preLaunchTask": "npm: test",
       "url": "http://localhost:9876/debug.html"
+    },
+    {
+      "name": "tsx parser.mts",
+      "type": "node",
+      "request": "launch",
+
+      // Debug current file in VSCode
+      "program": "${workspaceFolder}/parser.mts",
+
+      /*
+       * Path to tsx binary
+       * Assuming locally installed
+       */
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx"
     }
   ]
 }

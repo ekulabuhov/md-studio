@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require("electron/main");
 const path = require("node:path");
-const { exec } = require('child_process');
-const { error } = require("node:console");
+const { exec } = require("child_process");
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -12,21 +11,27 @@ const createWindow = () => {
     },
   });
 
-  win.loadFile("index.html");
+  win.loadURL("http://localhost:4401");
+  win.webContents.openDevTools();
 };
 
 app.whenReady().then(() => {
-  ipcMain.handle("ping", async () => {
+  ipcMain.handle("ping", async (_, param2) => {
     return new Promise((resolve, reject) => {
-        exec('ls', (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-            } else {
-                resolve(stdout);
-            }
-        });
+      exec(
+        `docker run --rm -v "$PWD":/src sgdk`,
+        {
+          cwd: "./public",
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(stdout);
+          }
+        }
+      );
     });
-    
   });
   createWindow();
 
