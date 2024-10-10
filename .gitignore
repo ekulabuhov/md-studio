@@ -42,4 +42,4 @@ testem.log
 Thumbs.db
 
 # Contains generated C code and resources, exclude for now
-public/*
+public/out

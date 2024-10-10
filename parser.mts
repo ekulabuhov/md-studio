@@ -14,7 +14,7 @@ const generate: typeof generator = generator.default;
 const traverse: typeof traverser = traverser.default;
 
 const inputDir = "src/app";
-const inputFileName = "player.ts";
+const inputFileName = process.argv[2];
 let code = fs.readFileSync(inputDir + "/" + inputFileName).toString();
 const outputDir = "public";
 const outputCFilePath = `${outputDir}/src/${inputFileName.replace(
@@ -83,23 +83,6 @@ function convertTsTypeAliasDeclarationToStruct(node: TSTypeAliasDeclaration) {
 
 const memberExpressions = [];
 const MyVisitor = {
-  CallExpression(path: { node: CallExpression }) {
-    if (path.node.callee.type !== "MemberExpression") return;
-    if (path.node.callee.object.type !== "ThisExpression") return;
-    if (path.node.callee.property.type !== "Identifier") return;
-    console.log("Called!", path.node.callee.property?.name);
-    const callee = path.node.callee;
-
-    const callLine = code.split("\n")[callee.loc?.start.line - 1];
-    const argStartIndex = callLine.indexOf("(");
-    const codeLines = code.split("\n");
-    codeLines[callee.loc?.start.line - 1] =
-      "".padStart(callee.loc?.start.column) +
-      `${className.toUpperCase()}_${
-        callee.property.name
-      }(this, ${callLine.slice(argStartIndex + 1)}`;
-    code = codeLines.join("\n");
-  },
   MemberExpression(path: { parent: Node; node: MemberExpression }) {
     if (path.parent.type !== "MemberExpression") {
       memberExpressions.push({
@@ -107,11 +90,16 @@ const MyVisitor = {
         end: path.node.end,
         parentType: path.parent.type,
         isCallee: path.node === path.parent.callee,
+        // Use objectType to distinguish between local calls and lib calls:
+        // MemberExpression: this.sprite.setAnim
+        // ThisExpression: this.setCameraPosition
+        objectType: path.node.object.type,
       });
       console.log(
         "MemberExpression!",
         code.slice(path.node.start, path.node.end),
-        path.parent.type
+        path.parent.type,
+        path.node.object.type
       );
     }
   },
@@ -135,9 +123,21 @@ function fixMemberExpressions() {
     if (me.parentType === "CallExpression" && me.isCallee) {
       me.end += 1;
       const path = code.slice(me.start, me.end).split(".");
-      // sprite -> SPR or map -> MAP
-      const shortcut = path[1].slice(0, 3).toUpperCase();
-      newCode += `${shortcut}_${path[2]}this->${path[1]}, `;
+      let memberClassName = "";
+      let functionName = "";
+      let instance = "this";
+      if (me.objectType === "MemberExpression") {
+        // Replaces this.sprite.setAnim(...) with SPR_setAnim(this->sprite, ...)
+        // funky logic: sprite -> SPR or map -> MAP
+        memberClassName = path[1].slice(0, 3).toUpperCase();
+        functionName = path[2];
+        instance = `this->${path[1]}`;
+      } else if (me.objectType === 'ThisExpression') {
+        // Replaces this.setCameraPosition(...) with CAMERA_setCameraPosition(this, ...)
+        memberClassName = className.toUpperCase();
+        functionName = path[1];
+      }
+      newCode += `${memberClassName}_${functionName}${instance}, `;
     } else {
       newCode += code.slice(me.start, me.end).replaceAll(".", "->");
     }
@@ -279,7 +279,8 @@ props += `} ${className};\n`;
 
 fs.writeFileSync(
   outputHFilePath,
-  `#ifndef _${className.toUpperCase()}_H_
+  `// Generated from ${inputFileName}. DO NOT EDIT.
+#ifndef _${className.toUpperCase()}_H_
 #define _${className.toUpperCase()}_H_
 
 #include "types.h"
@@ -294,6 +295,7 @@ ${forwardDeclarations.join("\n")}
 );
 
 // Write converted C code
+output = `// Generated from ${inputFileName}. DO NOT EDIT.\n` + output;
 fs.writeFileSync(outputCFilePath, output);
 
 // console.log(props);

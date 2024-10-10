@@ -1,33 +1,27 @@
-import { MAP_WIDTH, MAP_HEIGHT } from './level';
-import { s16 } from './types';
+// Generated from camera.ts. DO NOT EDIT.
+#include "camera.h"
+#include "level.h"
+#include "types.h"
 
-export class Camera {
-  camPosX = -1;
-  camPosY = -1;
-  bgaPosX = -1;
-  bgaPosY = -1;
-  bgbPosX = -1;
-  bgbPosY = -1;
-
-  centerOn(posX: s16, posY: s16) {
+void CAMERA_centerOn(Camera *this, s16 posX, s16 posY) {
     // get entity position (pixel)
-    let px = posX;
-    let py = posY;
+    s16 px = posX;
+    s16 py = posY;
     // current sprite position on screen
-    let px_scr = px - this.camPosX;
-    let py_scr = py - this.camPosY;
+    s16 px_scr = px - this->camPosX;
+    s16 py_scr = py - this->camPosY;
 
-    let npx_cam, npy_cam;
+    s16 npx_cam, npy_cam;
 
     // Adjust new camera position, how far can you character move on x axis until camera starts following
     // screen_width / 2 - sprite_width / 2 = 320 / 2 - 40 / 2 = 140
     if (px_scr > 140) npx_cam = px - 140;
     // Add 10 pixels of leeway so that you can turn around and camera doesn't start moving immediately
     else if (px_scr < 130) npx_cam = px - 130;
-    else npx_cam = this.camPosX;
+    else npx_cam = this->camPosX;
     if (py_scr > 140) npy_cam = py - 140;
     else if (py_scr < 60) npy_cam = py - 60;
-    else npy_cam = this.camPosY;
+    else npy_cam = this->camPosY;
 
     // clip camera position
     if (npx_cam < 0) npx_cam = 0;
@@ -36,21 +30,21 @@ export class Camera {
     else if (npy_cam > MAP_HEIGHT - 224) npy_cam = MAP_HEIGHT - 224;
 
     // set new camera position
-    this.setCameraPosition(npx_cam, npy_cam);
+    CAMERA_setCameraPosition(this, npx_cam, npy_cam);
   }
 
-  setCameraPosition(x: s16, y: s16) {
-    if (x != this.camPosX || y != this.camPosY) {
-      this.camPosX = x;
-      this.camPosY = y;
+void CAMERA_setCameraPosition(Camera *this, s16 x, s16 y) {
+    if (x != this->camPosX || y != this->camPosY) {
+      this->camPosX = x;
+      this->camPosY = y;
 
       // scroll maps
-      this.bgaPosX = x;
-      this.bgaPosY = y;
+      this->bgaPosX = x;
+      this->bgaPosY = y;
 
       // scrolling is slower on BGB
-      this.bgbPosX = x >> 3;
-      this.bgbPosY = y >> 5;
+      this->bgbPosX = x >> 3;
+      this->bgbPosY = y >> 5;
     }
   }
-}
+

@@ -28,7 +28,8 @@ const ANIM_ROLL = 7;
 
 // 1280 - 356 = 924
 const MAX_POSY = FIX32(MAP_HEIGHT - 356);
-const MIN_POSX = FIX32(10);
+// 48 is the width of the sprite
+const MIN_POSX = FIX32(-8);
 const MAX_POSX = FIX32(MAP_WIDTH - 100);
 
 const RUN_SPEED = FIX32(6);
