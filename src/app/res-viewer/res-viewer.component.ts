@@ -38,7 +38,7 @@ export class ResViewerComponent {
   constructor() {}
 
   async ngOnInit() {
-    const rsData = await fetch('res/gfx.rs').then((res) => res.text());
+    const rsData = await fetch('res/gfx.xrs').then((res) => res.text());
     const bgaMap = this.parseSection(rsData, 'bga_map');
     const tileData = this.parseSection(rsData, 'bga_tileset_data');
     const metaTileData = this.parseSection(rsData, 'bga_map_metatiles');
@@ -65,7 +65,7 @@ export class ResViewerComponent {
     const { paletteHex, paletteObj } = this.parsePalettes(rsData);
     this.palettes = paletteHex;
 
-    const drawMetaTile = (xPos: number, yPos: number, metaTileIdx: number) =>
+    const drawMetaTile = (xPos: number, yPos: number, metaTileIdx: number, blockIdx: number) =>
       this.drawMetaTile(
         metaTileData,
         tileData,
@@ -73,12 +73,10 @@ export class ResViewerComponent {
         ctx,
         xPos,
         yPos,
-        metaTileIdx
+        metaTileIdx,
+        blockIdx
       );
 
-    for (let metaTileIdx = 0; metaTileIdx < 8; metaTileIdx++) {
-      drawMetaTile(metaTileIdx * 16, 0, metaTileIdx);
-    }
 
     const drawBlock = (blockIdx: number, xPos: number, yPos: number) =>
       this.drawBlock(mapBlocksData, blockIdx, xPos, yPos, drawMetaTile);
@@ -121,7 +119,7 @@ export class ResViewerComponent {
     blockIdx: number,
     xPos: number,
     yPos: number,
-    drawMetaTile: (xPos: number, yPos: number, metaTileIdx: number) => void
+    drawMetaTile: (xPos: number, yPos: number, metaTileIdx: number, blockIdx: number) => void
   ) {
     let offset = blockIdx * 128;
 
@@ -131,7 +129,7 @@ export class ResViewerComponent {
           (mapBlocksData[offset] << 8) + mapBlocksData[offset + 1];
         offset += 2;
 
-        drawMetaTile(xPos * 128 + x * 16, yPos * 128 + y * 16, metaTileIdx);
+        drawMetaTile(xPos * 128 + x * 16, yPos * 128 + y * 16, metaTileIdx, blockIdx);
       }
     }
   }
@@ -143,7 +141,8 @@ export class ResViewerComponent {
     ctx: CanvasRenderingContext2D,
     xPos: number,
     yPos: number,
-    metaTileIdx: number
+    metaTileIdx: number,
+    blockIdx: number
   ) {
     let offset = metaTileIdx * 2 * 2 * 2;
     const imageData = ctx.createImageData(16, 16);
@@ -208,6 +207,7 @@ export class ResViewerComponent {
         }
       }
     }
+    ctx.fillText(`${blockIdx}`, xPos, yPos);
     ctx.putImageData(imageData, xPos, yPos);
   }
 

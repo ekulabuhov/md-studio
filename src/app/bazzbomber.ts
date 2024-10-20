@@ -6,6 +6,7 @@ export class BazzBomber {
     posX: fix32;
     posY: fix32;
     sprite: Sprite;
+    hFlip: boolean;
 
     constructor(sprite: Sprite, posX: fix32, posY: fix32) {
         this.sprite = sprite;

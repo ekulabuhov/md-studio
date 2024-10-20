@@ -1,6 +1,7 @@
 <canvas #canvas></canvas>
-<div style="position: absolute; bottom: 0px">
+<div style="position: absolute; bottom: 0px; background-color: bisque">
   {{ xCoord }}x{{ yCoord }}
+  <div>{{Math.floor(xCoord / 8)}}x{{Math.floor((yCoord - 272) / 8)}}  {{Math.floor((yCoord - 272) / 8) * 44 + Math.floor(xCoord / 8)}}</div>
   <div class="form-check">
     <input
       class="form-check-input"
@@ -20,9 +21,7 @@
       [(ngModel)]="drawGrid"
       id="drawGridCheck"
     />
-    <label class="form-check-label" for="drawGridCheck">
-      Draw grid
-    </label>
+    <label class="form-check-label" for="drawGridCheck"> Draw grid </label>
   </div>
   <div class="form-check">
     <input
@@ -31,9 +30,46 @@
       [(ngModel)]="shouldAnimate"
       id="shouldAnimateCheck"
     />
-    <label class="form-check-label" for="shouldAnimateCheck">
-      Animate?
-    </label>
+    <label class="form-check-label" for="shouldAnimateCheck"> Animate? </label>
   </div>
-  <input type="number" [(ngModel)]="camPosYOffset">
+  <div class="mb-3">
+    <label for="bgImageURLInput" class="form-label">Background Image URL</label>
+    <div class="input-group mb-3">
+      <input
+        type="text"
+        class="form-control"
+        id="bgImageURLInput"
+        disabled readonly
+        [(ngModel)]="bgImgUrl"
+      />
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        id="button-addon2"
+        (click)="onBgImgUrlSelect()"
+      >
+        Select
+      </button>
+    </div>
+  </div>
+  <button class="btn btn-outline-secondary" type="button" (click)="onPlayClick()">Play</button>
+  <span>{{mouseMode}}</span>
+</div>
+
+<div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">Modal title</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <app-asset-drawer (fileSelected)="onFileSelected($event)"></app-asset-drawer>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary">Save changes</button>
+      </div>
+    </div>
+  </div>
 </div>

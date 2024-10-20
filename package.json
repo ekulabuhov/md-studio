@@ -15,7 +15,8 @@
     "electron": "electron",
     "parser": "tsx ./parser.mts",
     "sgdk": "cd public && docker run --rm -v \"$PWD\":/src sgdk debug",
-    "sgdk:clean": "cd public && docker run --rm -v \"$PWD\":/src sgdk clean"
+    "sgdk:clean": "cd public && docker run --rm -v \"$PWD\":/src sgdk clean",
+    "sgdk:home": "cd ~/Documents/MDStudio && docker run --rm -v \"$PWD\":/src sgdk debug"
   },
   "private": true,
   "dependencies": {
@@ -27,6 +28,9 @@
     "@angular/platform-browser": "^18.2.0",
     "@angular/platform-browser-dynamic": "^18.2.0",
     "@angular/router": "^18.2.0",
+    "@popperjs/core": "^2.11.8",
+    "bootstrap": "^5.3.3",
+    "idb-keyval": "^6.2.1",
     "nostalgist": "^0.10.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
@@ -41,6 +45,7 @@
     "@babel/traverse": "^7.25.6",
     "@types/babel__generator": "^7.6.8",
     "@types/babel__traverse": "^7.20.6",
+    "@types/bootstrap": "^5.2.10",
     "@types/jasmine": "~5.1.0",
     "electron": "^32.0.1",
     "jasmine-core": "~5.2.0",

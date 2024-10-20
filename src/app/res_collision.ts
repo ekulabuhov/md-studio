@@ -1,3 +1,6 @@
+import { arrayToDc } from "./asm_utils";
+import { fs } from "./fs_electron";
+
 /**  
  * An object containing tileId and an array of 8 y offsets ranging from 0 (fallthrough) to 8 (max floor).
  * E.g.: { "116": [8,8,8,8,8,8,8,8] }
@@ -13,15 +16,10 @@ export function getHeightValue(tileId, offsetX) {
 }
 
 export async function loadCollisionMap() {
-  const opfsRoot = await navigator.storage.getDirectory();
-  const fileHandle = await opfsRoot.getFileHandle('collision_map.json', {
-    create: true,
-  });
-  const file = await fileHandle.getFile();
-  const collisionMap = JSON.parse(await file.text());
+  const fileContents = await fs.readFile('collision_map.json');
+  tileIdToHeightMap = JSON.parse(fileContents);
 
-  tileIdToHeightMap = collisionMap;
-  return collisionMap;
+  return tileIdToHeightMap;
 }
 
 /**
@@ -31,13 +29,7 @@ export async function loadCollisionMap() {
 export async function storeCollisionMap(collisionMap) {
   tileIdToHeightMap = collisionMap;
 
-  const opfsRoot = await navigator.storage.getDirectory();
-  const fileHandle = await opfsRoot.getFileHandle('collision_map.json', {
-    create: true,
-  });
-  const stream = await fileHandle.createWritable();
-  await stream.write(JSON.stringify(collisionMap));
-  await stream.close();
+  fs.writeFile('collision_map.json', JSON.stringify(collisionMap));
 }
 
 /**
@@ -58,14 +50,14 @@ export function convertToAsm() {
     .align  2
     .global tileIdToHeightMap
 tileIdToHeightMap:
-` + arrayToDcb(tileIdToCollisionMap);
+` + arrayToDc(tileIdToCollisionMap);
 
   asm +=
     `
   .align  2
   .global heightMaps
 heightMaps:
-` + arrayToDcb(Object.values(tileIdToHeightMap).flat());
+` + arrayToDc(Object.values(tileIdToHeightMap).flat());
 
   const heightMapCount = Object.values(tileIdToHeightMap).length;
 
@@ -87,26 +79,4 @@ u8 getHeightValue(u16 tileId, u8 offsetX) {
 #endif // _RES_COLLISION_H_`;
 
   return { asm, header };
-}
-
-function arrayToDcb(array: number[]) {
-  let str = '';
-  for (let y = 0; y < Math.ceil(array.length / 16); y++) {
-    str += '    dc.b    ';
-
-    str += array
-      .slice(y * 16, Math.min(array.length, y * 16 + 16))
-      .map((el) => '0x' + el.toString(16).padStart(2, '0'))
-      .join(', ');
-    str += '\n';
-  }
-  return str;
-}
-
-function fixNulls() {
-  Object.keys(tileIdToHeightMap).forEach((key) =>
-    tileIdToHeightMap[key].forEach((el, i) => {
-      if (el === null) tileIdToHeightMap[key][i] = 0;
-    })
-  );
 }

@@ -1,3 +1,4 @@
+import { GameEntity } from './canvas/canvas.component';
 import { MAP_WIDTH, MAP_HEIGHT } from './level';
 import { s16 } from './types';
 
@@ -8,6 +9,11 @@ export class Camera {
   bgaPosY = -1;
   bgbPosX = -1;
   bgbPosY = -1;
+  follows: GameEntity;
+
+  constructor(follows: GameEntity) {
+    this.follows = follows;
+  }
 
   centerOn(posX: s16, posY: s16) {
     // get entity position (pixel)

@@ -8,7 +8,7 @@ export const routes: Routes = [
         component: ResViewerComponent
     },
     {
-        path: 'canvas',
+        path: '',
         component: CanvasComponent
     }
 ];
