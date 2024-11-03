@@ -1,258 +1,259 @@
 import { arrayToDc } from './asm_utils';
 import { fs } from './fs_electron';
+import { calculatePalette } from './palette';
+import { CollisionMap, convertToAsm } from './res_collision';
 import { getImagePixelData } from './utils';
 
-export async function compileRom(bgImgUrl: string, tileMap: number[][]) {
-  const { pixels, canvas, context } = await getImagePixelData(bgImgUrl);
+type Sprite = {
+  id: string;
+  frameWidth: number;
+  animations: {
+    name: string;
+    imageURL: string;
+  }[]
+};
 
-  // Calculate unique colors
-  const { colors, mdColors } = calculateUniqueColors(pixels);
+export type CompileData = {
+  collisionMap: CollisionMap,
+  bgA: {
+    imageURL: string;
+    tiles: {
+      map: number[][];
+    };
+  };
+  bgB: {
+    imageURL: string;
+    tiles: {
+      coverMode?: string;
+    };
+  };
+  sprites: Sprite[]
+};
 
-  // Build array of tileData bytes
-  const colorKeys: string[] = Object.keys(colors);
-  // First tile should be black
-  const bytes = [];
-  const selectedPalettes = assignPaletteToTile(canvas, pixels, colorKeys);
+export async function compileRom(compileData: CompileData) {
+  const bgaPalettes = await processBackgroundWithTileMap(
+    'bga',
+    compileData.bgA.imageURL,
+    compileData.bgA.tiles.map
+  );
+  const bgbPalettes = await processBackgroundWithTileMap(
+    'bgb',
+    compileData.bgB.imageURL,
+    [],
+    [[0]]
+  );
 
-  let globalNotFound = 0;
-  for (let tileY = 0; tileY < canvas.height / 8; tileY++) {
-    for (let tileX = 0; tileX < canvas.width / 8; tileX++) {
-      const selectedPaletteName = selectedPalettes[tileY][tileX].palette;
-      const selectedPalette =
-        selectedPaletteName === 'PAL0'
-          ? colorKeys.slice(0, 16)
-          : colorKeys.slice(16);
-      let notFound = 0;
-      for (let y = 0; y < 8; y++) {
-        let byte = 0;
-        for (let x = 0; x < 8; x++) {
-          const i =
-            tileY * canvas.width * 4 * 8 +
-            tileX * 8 * 4 +
-            y * canvas.width * 4 +
-            x * 4;
-          const r = pixels.data[i];
-          const g = pixels.data[i + 1];
-          const b = pixels.data[i + 2];
-          const key = ((r << 16) + (g << 8) + b).toString(16);
-          let colorIndex = selectedPalette.indexOf(key);
-
-          if (isNaN(colorIndex) || colorIndex === -1) {
-            colorIndex = 0;
-            notFound++;
-          }
-
-          const { mdR, mdG, mdB } = mdColors[parseInt(colors[key].mdKey, 16)];
-          // replace colors with md colors
-          pixels.data[i] = mdR * 18;
-          pixels.data[i + 1] = mdG * 18;
-          pixels.data[i + 2] = mdB * 18;
-
-          if (x % 2 === 0) {
-            byte = colorIndex << 4;
-          } else {
-            byte += colorIndex;
-            bytes.push(byte);
-          }
-        }
-      }
-      console.log({tileX: tileX.toString(16), notFound, selectedPaletteName});
-      globalNotFound += notFound;
-    }
+  for await (const sprite of compileData.sprites) {
+    await processSprite(sprite)
   }
 
-  console.log({globalNotFound, selectedPalettes});
-
-  context.putImageData(pixels, 0, 0);
-//   canvas.convertToBlob().then((blob) => {
-//     const url = URL.createObjectURL(blob);
-//     window.open(url);
-//   });
-  //   return;
-
-  const mdPalette = colorKeys.map((key) => `0x${colors[key].mdKey}`).join(', ');
-
-  // 8px * 8px * 4 bytes = 256 bytes
-  const tileCount = pixels.data.length / 256;
-  writeTileSetFile(bytes, tileCount);
-
-  const asmFileContents = `.section .rodata_binf
-
-    .align  2
-blue_tilemap_data:
-${arrayToDc(tileMap.flat(), 4, 'w')}
-
-    .align 2
-    .global blue_tilemap
-blue_tilemap:
-    dc.w    0  /* compression */ 
-    dc.w    64 /* w */
-    dc.w    32 /* h */
-    dc.l    blue_tilemap_data
-    `;
-
-    fs.writeFile('res/blue_tilemap.s', asmFileContents);
-
-
-  const hFileContents = `#ifndef _RES_BLUE_TILESET_H_
-    #define _RES_BLUE_TILESET_H_
+  const mdPalette = bgaPalettes
+    .concat(bgbPalettes)
+    .flat()
+    .map((color) => '0x' + color.toString(16))
+    .join(', ');
+  const hFileContents = `#ifndef _RES_H_
+    #define _RES_H_
     
-    extern const TileSet blue_tileset;
-    extern const TileMap blue_tilemap;
+    extern const TileSet bga_tileset;
+    extern const TileMap bga_tilemap;
+
+    extern const TileSet bgb_tileset;
     
-    #endif // _RES_BLUE_TILESET_H_`;
-  fs.writeFile('res/blue_tileset.h', hFileContents);
+    #endif // _RES_H_`;
+  fs.writeFile('res/res.h', hFileContents);
 
   const mainFileContents = `#include <genesis.h>
-#include "blue_tileset.h"
+#include "res.h"
+// Depends on presence of sprites
+#include "gfx.h"
+
+// Depends on player.ts/c
+#include "player.h"
+#include "camera.h"
+
+Player player;
+Camera camera;
+
+// forward declarations
+static void joyEvent(u16 joy, u16 changed, u16 state);
 
 int main(bool hard) {
     u16 ind = TILE_USER_INDEX;
-    VDP_loadTileSet(&blue_tileset, ind, DMA);
+
+    // Load BG_A
+    VDP_loadTileSet(&bga_tileset, ind, DMA);
+    // VDP_setTileMap(BG_A, &bga_tilemap, 0, 0, 64, 32, CPU);
+    VDP_setTileMapEx(BG_A, &bga_tilemap, ind, 0, 0, 0, 0, 64, 32, CPU);
+    ind += bga_tileset.numTile;
+
+    // Load BG_B
+    VDP_loadTileSet(&bgb_tileset, ind, DMA);
 
     // Generates tilemap on the fly - by tiling the whole screen with repeating pattern
-    // u16 tilemap[64 * 32];
-    // TileMap blue_tileMap = {.w = 64, .h = 32, .compression = 0, .tilemap = tilemap};
-    // for (size_t y = 0; y < 32; y++)
-    // {
-    //     for (size_t x = 0; x < 64; x++)
-    //     {
-    //         size_t i = y * 64 + x;
-    //         tilemap[i] = (y % 8) * 8 + x % 8;
-    //     }
-    // }
+    u16 tilemap[64 * 32];
+    TileMap bgb_tilemap = {.w = 64, .h = 32, .compression = 0, .tilemap = tilemap};
+    for (size_t y = 0; y < 32; y++)
+    {
+        for (size_t x = 0; x < 64; x++)
+        {
+            size_t i = y * 64 + x;
+            tilemap[i] = (y % 8) * 8 + x % 8;
+        }
+    }
+    VDP_setTileMapEx(BG_B, &bgb_tilemap, TILE_ATTR_FULL(PAL2, FALSE, FALSE, FALSE, ind), 0, 0, 0, 0, 64, 32, CPU);
 
+    // Load palette
     u16 colors[] = { ${mdPalette} };
-    PAL_setColors(0, colors, sizeof(colors), CPU);
+    PAL_setColors(0, colors, sizeof(colors) / 2, CPU);
 
-    // VDP_setTileMapEx(BG_B, &blue_tileMap, TILE_ATTR_FULL(PAL0, FALSE, FALSE, FALSE, ind), 0, 0, 0, 0, 64, 32, CPU);
-    VDP_setTileMapEx(BG_B, &blue_tilemap, TILE_ATTR_FULL(PAL0, FALSE, FALSE, FALSE, ind), 0, 0, 0, 0, 64, 32, CPU);
+    // Load sprites 
+    // init sprite engine with default parameters
+    SPR_init();
+    Sprite *ninja_frog_sprite = SPR_addSprite(&ninja_frog_sprite_def, 0, 0, TILE_ATTR(PAL3, TRUE, FALSE, FALSE));
+    PAL_setPaletteColors(16*3, ninja_frog_sprite_def.palette, CPU);
 
-    ind += blue_tileset.numTile;
+    PLAYER_constructor(&player, ninja_frog_sprite, &bga_tilemap);
+    CAMERA_constructor(&camera, &player, 512, 256);
+    
+    JOY_setEventHandler(joyEvent);
 
     while (TRUE)
     {
+      u16 joyState = JOY_readJoypad(JOY_1);
+
+      // First
+      PLAYER_handleInput(&player, joyState);
+      PLAYER_update(&player);
+
+      SPR_setHFlip(player.sprite, player.hFlip);
+
+      // then set camera from player position
+      CAMERA_centerOn(&camera, fix32ToInt(player.posX), fix32ToInt(player.posY));
+
+      VDP_setHorizontalScroll(BG_A, -camera.bgaPosX);
+      VDP_setHorizontalScroll(BG_B, -camera.bgbPosX);
+      VDP_setVerticalScroll(BG_A, camera.bgaPosY);
+      VDP_setVerticalScroll(BG_B, camera.bgbPosY);
+
+      s16 x = fix32ToInt(player.posX) - camera.camPosX;
+      s16 y = fix32ToInt(player.posY) - camera.camPosY;
+      SPR_setPosition(player.sprite, x, y);
+
+      // update sprites
+      SPR_update();
       SYS_doVBlankProcess();
     }
 
     return 0;
+}
+
+static void joyEvent(u16 joy, u16 changed, u16 state)
+{
+    PLAYER_doJoyAction(&player, joy, changed, state);
 }`;
 
   fs.writeFile('src/main.c', mainFileContents);
 
+  writeCollisionMap(compileData.collisionMap);
+
   console.log('started compilation');
-  const response = await (window as any).versions.ping();
-  console.log(response); // prints out 'pong'
-
-  console.log({
-    colors,
-    mdColors: Object.keys(mdColors).map((c) => parseInt(c).toString(16)),
-    md888Colors: mdColors,
-  });
+  const response = await window.project.compile();
+  console.log(response);
 }
 
-function writeTileSetFile(bytes: any[], tileCount: number) {
-    const asmFileContents = `.section .rodata_binf
-
-    .align  2
-blue_tileset_data:
-${arrayToDc(bytes, 4)}
-
-    .align 2
-    .global blue_tileset
-blue_tileset:
-    dc.w    0
-    dc.w    ${tileCount} /* number of tiles */
-    dc.l    blue_tileset_data
-    `;
-
-    fs.writeFile('res/blue_tileset.s', asmFileContents);
+function writeCollisionMap(collisionMap: CollisionMap) {
+  const { header, asm } = convertToAsm(collisionMap);
+  fs.writeFile('/res/res_collision.h', header);
+  fs.writeFile('/res/res_collision.s', asm);
 }
 
-function assignPaletteToTile(
-  canvas: OffscreenCanvas,
-  pixels: ImageData,
-  colorKeys: string[]
-) {
-  const globalPal0Usages = new Array(16).fill(0);
-  const globalPal1Usages = new Array(16).fill(0);
-  const shouldBeMovedFromPal0ToPal1 = new Array(16).fill(0);
+async function processBackgroundWithTileMap(id: string, imgUrl: string, tileMap: number[][], existingPalettes?: number[][]) {
+  const { pixels, canvas, context } = await getImagePixelData(imgUrl);
+  // Increase the tilemap offset
+  const flatTileMap = tileMap.flat();
 
-  const selectedPalettes = Array.from({ length: 64 }, () => []);
-  for (let tileY = 0; tileY < canvas.height / 8; tileY++) {
-    for (let tileX = 0; tileX < canvas.width / 8; tileX++) {
-      let pal0Usages = new Array(16).fill(0);
-      let pal1Usages = new Array(16).fill(0);
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          const i =
-            tileY * canvas.width * 4 * 8 +
-            tileX * 8 * 4 +
-            y * canvas.width * 4 +
-            x * 4;
-          const r = pixels.data[i];
-          const g = pixels.data[i + 1];
-          const b = pixels.data[i + 2];
-          const key = ((r << 16) + (g << 8) + b).toString(16);
-          const colorIndex = colorKeys.indexOf(key);
+  // Calculate unique colors
+  const { palettePerTile, tilePixels, palettes } = calculatePalette(canvas, existingPalettes);
 
-          if (isNaN(colorIndex)) {
-            debugger;
-          }
+  // Build array of tileData bytes
+  const bytes = [];
+  const tileCount = pixels.data.length / 256;
 
-          if (colorIndex > 0xf) {
-            pal1Usages[colorIndex - 0x10]++;
-            globalPal1Usages[colorIndex - 0x10]++;
-          } else {
-            pal0Usages[colorIndex]++;
-            globalPal0Usages[colorIndex]++;
-          }
+  for (let tileIdx = 0; tileIdx < tileCount; tileIdx++) {
+    const selectedPaletteIdx = palettePerTile[tileIdx];
+    const selectedPalette = palettes[selectedPaletteIdx];
+    if (selectedPaletteIdx) {
+      // Find all the tilemap entries and set palette idx
+      flatTileMap.forEach((entry, i) => {
+        if (entry === tileIdx) {
+          flatTileMap[i] += selectedPaletteIdx << 13;
+        }
+      });
+    }
+
+    for (let y = 0; y < 8; y++) {
+      let byte = 0;
+      for (let x = 0; x < 8; x++) {
+        const i = y * 8 + x;
+        const key = tilePixels[tileIdx][i];
+        let colorIndex = selectedPalette.indexOf(key);
+
+        if (isNaN(colorIndex) || colorIndex === -1) {
+          debugger;
+        }
+
+        if (x % 2 === 0) {
+          byte = colorIndex << 4;
+        } else {
+          byte += colorIndex;
+          bytes.push(byte);
         }
       }
-      const pal0UsageCount = pal0Usages.filter(Boolean).length;
-      const pal1UsageCount = pal1Usages.filter(Boolean).length;
-      const sum = (acc,val) => acc + val;
-      const pixelsUsedInPal0 = pal0Usages.reduce(sum);
-      const pixelsUsedInPal1 = pal1Usages.reduce(sum);
-      if (pal1UsageCount > pal0UsageCount && pal0UsageCount !== 0) {
-        for (let i = 0; i < 15; i++) {
-          shouldBeMovedFromPal0ToPal1[i] += pal0Usages[i];
-        }
-      }
-      selectedPalettes[tileY][tileX] = {
-        pal0: pal0UsageCount,
-          pal1: pal1UsageCount,
-          pal0Usages,
-          pal1Usages,
-          pixelsUsedInPal0,
-          pixelsUsedInPal1,
-          // 1214
-          palette: pixelsUsedInPal0 >= pixelsUsedInPal1 ? 'PAL0' : 'PAL1'
-        //   palette: pal0UsageCount >= pal1UsageCount ? 'PAL0' : 'PAL1'
-      }
-        // console.log({
-        //   x: tileX,
-        //   y: tileY,
-        //   pal0: pal0UsageCount,
-        //   pal1: pal1UsageCount,
-        //   pal0Usages,
-        //   pal1Usages,
-        // });
     }
   }
 
-    console.log({
-      globalPal0Usages,
-      globalPal1Usages,
-      shouldBeMovedFromPal0ToPal1,
-    });
-  shouldBeMovedFromPal0ToPal1.forEach((val, i) => {
-    if (val) {
-      colorKeys.push(colorKeys[i]);
-    }
-  });
+  // 8px * 8px * 4 bytes = 256 bytes
+  writeTileSetFile(id, bytes, tileCount);
 
-  return selectedPalettes;
+  const asmFileContents = `.section .rodata_binf
+
+    .align  2
+${id}_tilemap_data:
+${arrayToDc(
+  flatTileMap,
+  4,
+  'w'
+)}
+
+    .align 2
+    .global ${id}_tilemap
+${id}_tilemap:
+    dc.w    0  /* compression */ 
+    dc.w    64 /* w */
+    dc.w    32 /* h */
+    dc.l    ${id}_tilemap_data`;
+
+  fs.writeFile(`res/${id}_tilemap.s`, asmFileContents);
+
+  return palettes;
+}
+
+function writeTileSetFile(id: string, bytes: any[], tileCount: number) {
+    const asmFileContents = `.section .rodata_binf
+
+    .align  2
+${id}_tileset_data:
+${arrayToDc(bytes, 4)}
+
+    .align 2
+    .global ${id}_tileset
+${id}_tileset:
+    dc.w    0
+    dc.w    ${tileCount} /* number of tiles */
+    dc.l    ${id}_tileset_data`;
+
+    fs.writeFile(`res/${id}_tileset.s`, asmFileContents);
 }
 
 export function calculateUniqueColors(pixels: ImageData) {
@@ -313,4 +314,64 @@ export function calculateUniqueColors(pixels: ImageData) {
     // pixels.data[i + 2] = mdB * 18;
   }
   return { colors, mdColors };
+}
+
+async function processSprite(sprite: Sprite) {
+  const { canvas, context } = await convertAnimationsIntoSpritesheet(sprite);
+  
+  // Calculate unique colors
+  const { palettes, coloredImage } = calculatePalette(canvas);
+
+  // Add space for palette
+  canvas.height += 8 * 4;
+  palettes[0].forEach((color, i) => {
+    context.fillStyle = i === 0 ? 'rgba(0,0,0,0)' : convert333BGRTo888RGB(color);
+    context.fillRect(i * 8, 0, 8, 8);
+  });
+
+  context.putImageData(coloredImage, 0, 32);
+
+  const blob = await canvas.convertToBlob();
+  const buffer = await blob.arrayBuffer();
+  
+  const fileName = sprite.id + '.png';
+  fs.writeFile(`res/${fileName}`, new Uint8Array(buffer));
+
+  fs.writeFile('res/gfx.res', `SPRITE ${sprite.id}_sprite_def "${fileName}" 4 4 FAST 5`);
+}
+
+export async function convertAnimationsIntoSpritesheet(sprite: Sprite) {
+  let sheetWidth = 0;
+  let sheetHeight = 0;
+  let bitmaps: ImageBitmap[] = [];
+  const animFrameCount = [];
+  for await (const animation of sprite.animations) {
+    const response = await fetch(animation.imageURL);
+    const fileBlob = await response.blob();
+    const bitmap = await createImageBitmap(fileBlob);
+    sheetWidth = Math.max(sheetWidth, bitmap.width);
+    sheetHeight += bitmap.height;
+    bitmaps.push(bitmap);
+    animFrameCount.push(bitmap.width / sprite.frameWidth);
+  }
+
+  const canvas = new OffscreenCanvas(sheetWidth, sheetHeight);
+  const context = canvas.getContext('2d')!;
+  let yOffset = 0;
+  bitmaps.forEach((bitmap) => {
+    context.drawImage(bitmap, 0, yOffset);
+    yOffset += bitmap.height;
+  });
+  
+  return { canvas, context, animFrameCount };
+}
+
+function convert333BGRTo888RGB(color: number) {
+  const mdR = color & 0xf;
+  const mdG = (color >> 4) & 0xf;
+  const mdB = (color >> 8);
+
+  const mdColors = [mdR, mdG, mdB];
+
+  return '#' + mdColors.map(color => (color * 18).toString(16).padStart(2, '0')).join('');
 }

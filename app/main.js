@@ -32,7 +32,7 @@ const createWindow = () => {
 const projectRoot = '/Users/eugene/Documents/MDStudio';
 
 app.whenReady().then(() => {
-  ipcMain.handle("ping", async (_, param2) => {
+  ipcMain.handle("compile", async (_, param2) => {
     return new Promise((resolve, reject) => {
       exec(
         `time docker run --rm -v "$PWD":/src sgdk debug`,

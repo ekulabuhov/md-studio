@@ -1,6 +1,5 @@
-import { GameEntity } from './canvas/canvas.component';
-import { MAP_WIDTH, MAP_HEIGHT } from './level';
-import { s16 } from './types';
+import { Player } from './player';
+import { s16, u16 } from './types';
 
 export class Camera {
   camPosX = -1;
@@ -9,10 +8,14 @@ export class Camera {
   bgaPosY = -1;
   bgbPosX = -1;
   bgbPosY = -1;
-  follows: GameEntity;
+  mapWidth = 0;
+  mapHeight = 0;
+  follows: Player;
 
-  constructor(follows: GameEntity) {
+  constructor(follows: Player, mapWidth: u16, mapHeight: u16) {
     this.follows = follows;
+    this.mapWidth = mapWidth;
+    this.mapHeight = mapHeight;
   }
 
   centerOn(posX: s16, posY: s16) {
@@ -37,9 +40,9 @@ export class Camera {
 
     // clip camera position
     if (npx_cam < 0) npx_cam = 0;
-    else if (npx_cam > MAP_WIDTH - 320) npx_cam = MAP_WIDTH - 320;
+    else if (npx_cam > this.mapWidth - 320) npx_cam = this.mapWidth - 320;
     if (npy_cam < 0) npy_cam = 0;
-    else if (npy_cam > MAP_HEIGHT - 224) npy_cam = MAP_HEIGHT - 224;
+    else if (npy_cam > this.mapHeight - 224) npy_cam = this.mapHeight - 224;
 
     // set new camera position
     this.setCameraPosition(npx_cam, npy_cam);
@@ -54,9 +57,13 @@ export class Camera {
       this.bgaPosX = x;
       this.bgaPosY = y;
 
-      // scrolling is slower on BGB
-      this.bgbPosX = x >> 3;
-      this.bgbPosY = y >> 5;
+      // scrolling is slower on BGB - for Sonic type game
+      // this.bgbPosX = x >> 3;
+      // this.bgbPosY = y >> 5;
+
+      // same speed scrolling - fits well for platformers like Pixel Adventure
+      this.bgbPosX = x;
+      this.bgbPosY = y;
     }
   }
 }

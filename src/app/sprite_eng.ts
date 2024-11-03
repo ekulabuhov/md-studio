@@ -1,10 +1,15 @@
+/**
+ * Follows SGDK Sprite definition to make translation to C simpler
+ */
 export class Sprite {
   /** How many frames in each animation */
   animFrameCount: number[] = [];
-  /** Width of a single frame in px */
-  frameWidth = 0;
-  /** Height of a single frame in px */
-  frameHeight = 0;
+  definition: {
+    /** Width of a single frame in px */
+    w: number;
+    /** Height of a single frame in px */
+    h: number;
+  }
   /** How many ticks of 1/60 to wait before changing to the next frame */
   frameTimer = 0;
 

@@ -31,3 +31,20 @@ export async function getImagePixelData(imageUrl: string) {
 export function getUnique(value, index, self) {
   return self.indexOf(value) === index;
 }
+
+export function downloadCanvasAsImage(canvas: OffscreenCanvas) {
+  let downloadLink = document.createElement('a');
+  downloadLink.setAttribute('download', 'CanvasAsImage.png');
+  canvas?.convertToBlob().then((blob) => {
+    let url = URL.createObjectURL(blob!);
+    downloadLink.setAttribute('href', url);
+    downloadLink.click();
+  });
+};
+
+export function showCanvasInNewWindow(canvas: OffscreenCanvas) {
+  canvas.convertToBlob().then((blob) => {
+    const url = URL.createObjectURL(blob);
+    window.open(url);
+  });
+}

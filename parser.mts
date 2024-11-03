@@ -1,3 +1,5 @@
+// Converts *.ts file to corresponding *.c and *.h
+// Run: npm run parser src/app/player.ts ~/Documents/MDStudio
 import parser from "@babel/parser";
 import traverser from "@babel/traverse";
 import {
@@ -13,10 +15,14 @@ import generator from "@babel/generator";
 const generate: typeof generator = generator.default;
 const traverse: typeof traverser = traverser.default;
 
-const inputDir = "src/app";
-const inputFileName = process.argv[2];
-let code = fs.readFileSync(inputDir + "/" + inputFileName).toString();
-const outputDir = "public";
+const inputFilePath = process.argv[2];
+const inputFileName = inputFilePath.split("/").pop();
+let code = fs.readFileSync(inputFilePath).toString();
+// Will output to provided dir or to a dir above the file
+// Input: /scripts/player.ts
+// Output: ../src/player.c, ../inc/player.h
+const outputDir =
+  process.argv[3] || (inputFilePath.split("/").slice(0, -1).join("/") + '/..');
 const outputCFilePath = `${outputDir}/src/${inputFileName.replace(
   ".ts",
   ".c"
@@ -132,7 +138,7 @@ function fixMemberExpressions() {
         memberClassName = path[1].slice(0, 3).toUpperCase();
         functionName = path[2];
         instance = `this->${path[1]}`;
-      } else if (me.objectType === 'ThisExpression') {
+      } else if (me.objectType === "ThisExpression") {
         // Replaces this.setCameraPosition(...) with CAMERA_setCameraPosition(this, ...)
         memberClassName = className.toUpperCase();
         functionName = path[1];
@@ -234,8 +240,9 @@ ast.program.body.forEach((node) => {
 
         if (node.type !== "ClassMethod") return;
         if (node.key.type !== "Identifier") return;
+        const methodReturnType = node.returnType ? node.returnType.typeAnnotation.typeName?.name : 'void';
         const methodName = node.key.name;
-        let methodHeader = `void ${className?.toUpperCase()}_${methodName}(${className} *this`;
+        let methodHeader = `${methodReturnType} ${className?.toUpperCase()}_${methodName}(${className} *this`;
         node.params.forEach((param) => {
           if (param.type !== "Identifier") return;
           if (!param.typeAnnotation) return;

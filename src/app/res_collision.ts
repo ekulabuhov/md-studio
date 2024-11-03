@@ -1,11 +1,13 @@
-import { arrayToDc } from "./asm_utils";
-import { fs } from "./fs_electron";
+import { arrayToDc } from './asm_utils';
+import { fs } from './fs_electron';
 
-/**  
+/**
  * An object containing tileId and an array of 8 y offsets ranging from 0 (fallthrough) to 8 (max floor).
  * E.g.: { "116": [8,8,8,8,8,8,8,8] }
- */ 
-let tileIdToHeightMap: { [key: number]: number[] };
+ */
+export type CollisionMap = { [tileId: number]: number[] };
+
+let tileIdToHeightMap: CollisionMap;
 
 export function getHeightValue(tileId, offsetX) {
   let heightMap = tileIdToHeightMap[tileId];
@@ -16,7 +18,11 @@ export function getHeightValue(tileId, offsetX) {
 }
 
 export async function loadCollisionMap() {
-  const fileContents = await fs.readFile('collision_map.json');
+  let fileContents = '{}';
+  try {
+    fileContents = await fs.readFile('collision_map.json');
+  } catch (error) {}
+
   tileIdToHeightMap = JSON.parse(fileContents);
 
   return tileIdToHeightMap;
@@ -24,7 +30,7 @@ export async function loadCollisionMap() {
 
 /**
  * This function stores collision_map.json file to browser facing file system (OPFS)
- * @param collisionMap 
+ * @param collisionMap
  */
 export async function storeCollisionMap(collisionMap) {
   tileIdToHeightMap = collisionMap;
@@ -34,13 +40,13 @@ export async function storeCollisionMap(collisionMap) {
 
 /**
  * Generates SGDK compatible ASM file (.s) along with header file
- * @returns 
+ * @returns
  */
-export function convertToAsm() {
+export function convertToAsm(collisionMap: CollisionMap) {
   // @ts-expect-error Object.key converts number keys to strings
-  const indexCount = Math.max(...Object.keys(tileIdToHeightMap)) + 1;
+  const indexCount = Math.max(...Object.keys(collisionMap)) + 1;
   const tileIdToCollisionMap = Array(indexCount).fill(0);
-  Object.keys(tileIdToHeightMap).forEach(
+  Object.keys(collisionMap).forEach(
     // 0 is reserved for empty, starting from 1
     (key, i) => (tileIdToCollisionMap[key] = i + 1)
   );
@@ -57,9 +63,9 @@ tileIdToHeightMap:
   .align  2
   .global heightMaps
 heightMaps:
-` + arrayToDc(Object.values(tileIdToHeightMap).flat());
+` + arrayToDc(Object.values(collisionMap).flat());
 
-  const heightMapCount = Object.values(tileIdToHeightMap).length;
+  const heightMapCount = Object.values(collisionMap).length;
 
   const header = `#ifndef _RES_COLLISION_H_
 #define _RES_COLLISION_H_

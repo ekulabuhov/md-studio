@@ -6,5 +6,8 @@ declare global {
       getFileList: (directory: string) => Promise<FileSystemEntry[]>;
       readFile: (filePath: string) => Promise<string>;
     };
+    project: {
+      compile: () => Promise<string>;
+    }
   }
 }

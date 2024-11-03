@@ -18,11 +18,11 @@ import {
   BUTTON_MODE,
 } from '../joy';
 import { fix32ToInt, FIX32 } from '../maths';
-import hashes from './tiles.json';
-import { coordsToTile } from './coords_to_tile';
-import { tileToCoords } from './tile_to_coords';
-import { loadCollisionMap, storeCollisionMap } from '../res_collision';
-import { Map } from '../map';
+import {
+  CollisionMap,
+  loadCollisionMap,
+  storeCollisionMap,
+} from '../res_collision';
 import { FormsModule } from '@angular/forms';
 import { fs } from '../fs_electron';
 import { fix32, u16 } from '../types';
@@ -30,9 +30,14 @@ import { Modal } from 'bootstrap';
 import { AssetDrawerComponent } from '../asset-drawer/asset-drawer.component';
 import { Nostalgist } from 'nostalgist';
 import { getImagePixelData, getUnique } from '../utils';
-import { compileRom } from '../compile_rom';
+import {
+  CompileData,
+  compileRom,
+  convertAnimationsIntoSpritesheet,
+} from '../compile_rom';
+import { TileMap } from '../vdp_tile';
 
-type DrawableImages = {
+type DrawableImage = {
   id?: string;
   img: CanvasImageSource;
   offset?: { x: number; y: number };
@@ -47,7 +52,45 @@ type DrawableImages = {
   };
   darkenRect?: { x: number; y: number; w: number; h: number };
   type?: 'GameEntity';
-}[];
+};
+
+type DrawableImages = DrawableImage[];
+
+type Only<T, U> = {
+  [P in keyof T]: T[P];
+} & {
+  [P in keyof U]?: never;
+};
+
+type Either<T, U> = Only<T, U> | Only<U, T>;
+
+type BG = {
+  imageURL: string;
+  tiles: {
+    tileSize: number;
+  } & Either<{ coverMode: 'tile' }, { mapUrl: string }>;
+};
+
+type SpriteDefinition = {
+  id: string;
+  animFrameCount: number[];
+  frameTimer: number;
+  frameWidth: number;
+  frameHeight: number;
+  animations: {
+    name: string;
+    imageURL: string;
+  }[];
+};
+
+type ProjectStructure = {
+  sceneWidth: number;
+  sceneHeight: number;
+  bgA: BG;
+  bgB: BG;
+  sprites: SpriteDefinition[];
+  collisionMapUrl: string;
+};
 
 export type GameEntity = {
   posX: fix32;
@@ -58,6 +101,9 @@ export type GameEntity = {
   handleInput?(joyState: number);
   doJoyAction?(joy: u16, changed: u16, state: u16);
 };
+
+const MD_SCREEN_WIDTH = 224;
+const MD_SCREEN_HEIGHT = 320;
 
 @Component({
   selector: 'app-canvas',
@@ -71,6 +117,52 @@ export class CanvasComponent {
   selectedTileNet?: { x: number; y: number; w: number; h: number };
   selectedTiles: { tileX: number; tileY: number; tileW: number; tileH: number };
   Math = Math;
+  projectStructure: ProjectStructure = {
+    collisionMapUrl: 'tile_map.json',
+    sceneWidth: 512,
+    sceneHeight: 256,
+    bgA: {
+      imageURL: 'PixelFrog/Terrain/Terrain (16x16).png',
+      tiles: {
+        tileSize: 8,
+        mapUrl: 'tile_map.json',
+      },
+    },
+    bgB: {
+      imageURL: 'app://project/PixelFrog/Background/Blue.png',
+      tiles: {
+        tileSize: 64,
+        coverMode: 'tile',
+      },
+    },
+    sprites: [
+      {
+        id: 'ninja_frog',
+        animFrameCount: [1, 2, 6, 4, 2, 1, 1, 5],
+        frameTimer: 5,
+        frameWidth: 32,
+        frameHeight: 32,
+        animations: [
+          {
+            name: 'idle',
+            imageURL:
+              'app://project/PixelFrog/Main Characters/Mask Dude/Idle (32x32).png',
+          },
+          {
+            name: 'run',
+            imageURL:
+              'app://project/PixelFrog/Main Characters/Mask Dude/Run (32x32).png',
+          },
+        ],
+      },
+    ],
+  };
+  /** [y][x]: tile_idx */
+  coordsToTile: number[][];
+  /** [tile_idx]: { x, y }[] */
+  tileToCoords: { [key: number]: { x: number; y: number }[] } = {};
+  drawCollisionMap = true;
+
   async onPlayClick() {
     this.nostalgist = await Nostalgist.launch({
       rom: 'rom.bin',
@@ -84,8 +176,8 @@ export class CanvasComponent {
   modal: Modal;
   async onFileSelected(fileUrl: string) {
     this.modal.hide();
-    this.bgImgUrl = fileUrl;
-    const imgBg = await this.loadImage(this.bgImgUrl);
+    this.projectStructure.bgB.imageURL = fileUrl;
+    const imgBg = await this.loadImage(fileUrl);
 
     this.images[0] = {
       img: imgBg,
@@ -102,14 +194,13 @@ export class CanvasComponent {
     this.modal.show();
   }
 
-  bgImgUrl = 'res/gfx/S1_GHZ1_BG.png';
   shouldAnimate = false;
   onClipViewportChange() {
     if (this.clipViewport) {
       // Scale to fullscreen and move into the middle
       this.ctx.save();
       this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const scale = window.innerHeight / 240;
+      const scale = window.innerHeight / MD_SCREEN_WIDTH;
       this.ctx.scale(scale, scale);
       this.ctx.translate(window.innerWidth / 2 / scale, 0);
       this.ctx.translate(-160, 0);
@@ -126,7 +217,7 @@ export class CanvasComponent {
   images: DrawableImages = [];
   joyState = 0;
   entities: GameEntity[] = [];
-  collisionMap: { [key: number]: number[] } = {};
+  collisionMap: CollisionMap = {};
   clipViewport = false;
   drawGrid = false;
   camera: Camera;
@@ -321,6 +412,10 @@ export class CanvasComponent {
     );
 
     document.addEventListener('keydown', (event) => {
+      if (!this.shouldAnimate) {
+        return;
+      }
+
       const previousValue = this.joyState;
       switch (event.key) {
         case 'ArrowUp':
@@ -368,6 +463,8 @@ export class CanvasComponent {
 
     document.addEventListener('keyup', (event) => {
       if (this.shouldAnimate) {
+        const previousValue = this.joyState;
+
         switch (event.key) {
           case 'ArrowUp':
             this.joyState &= ~BUTTON_UP;
@@ -409,6 +506,10 @@ export class CanvasComponent {
             this.nostalgist?.exit();
             break;
         }
+
+        this.entities.forEach((entity) => {
+          entity.doJoyAction?.(0, previousValue ^ this.joyState, this.joyState);
+        });
       } else {
         switch (event.key) {
           case 's':
@@ -453,14 +554,14 @@ export class CanvasComponent {
     const tileY = Math.floor((this.yCoord - bga.offset.y) / 8);
 
     // tileIdx is last 10 bits
-    const tileId = coordsToTile[tileY][tileX] & 0x7ff;
+    const tileId = this.coordsToTile[tileY][tileX] & 0x7ff;
 
     if (event.metaKey) {
-      if (this.collisionMap[tileId]) {
-        delete this.collisionMap[tileId];
-      } else {
-        this.collisionMap[tileId] = [8, 8, 8, 8, 8, 8, 8, 8];
-      }
+      // if (this.collisionMap[tileId]) {
+      //   delete this.collisionMap[tileId];
+      // } else {
+      this.collisionMap[tileId] = [8, 8, 8, 8, 8, 8, 8, 8];
+      // }
     }
 
     // Height map mode
@@ -511,16 +612,16 @@ export class CanvasComponent {
         this.camera.centerOn(fix32ToInt(entity.posX), fix32ToInt(entity.posY));
 
         // Backgrounds need to update after the camera
-        // const bga = this.images[1];
-        // bga.offset = {
-        //   x: -this.camera.bgaPosX,
-        //   y: -this.camera.bgaPosY,
-        // };
-        // const bgb = this.images[0];
-        // bgb.offset = {
-        //   x: -this.camera.bgbPosX,
-        //   y: -this.camera.bgbPosY,
-        // };
+        const bga = this.images[1];
+        bga.offset = {
+          x: -this.camera.bgaPosX,
+          y: -this.camera.bgaPosY,
+        };
+        const bgb = this.images[0];
+        bgb.offset = {
+          x: -this.camera.bgbPosX,
+          y: -this.camera.bgbPosY,
+        };
       }
 
       this.images.push({
@@ -530,10 +631,10 @@ export class CanvasComponent {
           y: fix32ToInt(entity.posY) - this.camera.camPosY,
         },
         source: {
-          x: entity.sprite.frameWidth * entity.sprite.animFrame,
-          y: entity.sprite.frameHeight * entity.sprite.animInd,
-          w: entity.sprite.frameWidth,
-          h: entity.sprite.frameHeight,
+          x: entity.sprite.definition.w * entity.sprite.animFrame,
+          y: entity.sprite.definition.h * entity.sprite.animInd,
+          w: entity.sprite.definition.w,
+          h: entity.sprite.definition.h,
         },
         hFlip: entity.hFlip,
         type: 'GameEntity',
@@ -556,72 +657,32 @@ export class CanvasComponent {
 
     ctx.imageSmoothingEnabled = false;
 
-    const fileList = await fs.getFileList('PixelFrog/Terrain');
-    const tileSetFile = fileList.find(
-      (file) => file.name === 'Terrain (16x16).png'
-    );
-    const imgTileSet = await this.loadImage(tileSetFile.url);
+    const bgA = await this.bgToDrawableImage(this.projectStructure.bgA);
+    const bgB = await this.bgToDrawableImage(this.projectStructure.bgB);
+    const player = await this.spriteToGameEntity(this.projectStructure);
 
-    // Load foreground image with transparency
-    const imgFg = await this.addTransparency('res/gfx/S1_GHZ1_FG.png', {
-      r: 0,
-      g: 0x92,
-      b: 0xff,
-    });
-    // this.splitIntoTiles(imgFg);
-    // Load background image
-    const imgBg = await this.loadImage(this.bgImgUrl);
-
-    const imageAspectRatio = imgFg!.width / imgFg!.height;
-    const drawingHeight = canvas.width / imageAspectRatio;
-    const canvasMiddleY = canvas.height / 2 - drawingHeight / 2;
-
-    // Takes full width, scales height according to ratio
-    const scale = canvas.width / imgFg!.width;
-    // Translate must be done before scaling
-    ctx.translate(0, canvasMiddleY);
-    ctx.scale(scale, scale);
-
-    const tileMapText = await fs.readFile('tile_map.json');
-    const tileMap = JSON.parse(tileMapText);
-
-    this.images = [
-      { img: imgBg, offset: { x: 0, y: -24 } },
-      // { img: imgFg, offset: { x: 0, y: -784 } },
-      {
-        id: 'tileSet',
-        img: imgTileSet,
-        offset: { x: 0, y: 272 },
-      },
-      {
-        id: 'tileMap',
-        img: imgTileSet,
-        offset: { x: 352, y: 272 },
-        tiles: {
-          tileSize: 8,
-          map: tileMap || Array.from({ length: 64 }, () => []),
-        },
-      },
-    ];
+    this.coordsToTile = bgA.tiles.map;
+    for (let y = 0; y < bgA.tiles.map.length; y++) {
+      for (let x = 0; x < bgA.tiles.map[y].length; x++) {
+        const tileId = bgA.tiles.map[y][x];
+        if (tileId) {
+          this.tileToCoords[tileId] = this.tileToCoords[tileId] || [];
+          this.tileToCoords[tileId].push({ x, y });
+        }
+      }
+    }
+    this.images = [bgB, bgA];
 
     setInterval(() => {
       storeCollisionMap(this.collisionMap);
-      fs.writeFile('tile_map.json', JSON.stringify(tileMap));
+      // fs.writeFile('tile_map.json', JSON.stringify(tileMap));
     }, 10000);
 
-    const sprite = await this.loadImage('res/sprite/sonic.png');
-    // animFrameCount and frameTimer specified through gfx.res
-    const player = new Player(
-      new Sprite({
-        animFrameCount: [1, 2, 6, 4, 2, 1, 1, 5],
-        frameTimer: 5,
-        frameWidth: 48,
-        frameHeight: 48,
-        image: sprite,
-      }),
-      new Map()
+    this.camera = new Camera(
+      player as Player,
+      this.projectStructure.sceneWidth,
+      this.projectStructure.sceneHeight
     );
-    this.camera = new Camera(player);
 
     const bazzbomberImg = await this.addTransparency('res/sprite/enemy01.png', {
       r: 0xff,
@@ -631,8 +692,10 @@ export class CanvasComponent {
     const bazzbomberSprite = new Sprite({
       animFrameCount: [2],
       frameTimer: 5,
-      frameWidth: 48,
-      frameHeight: 32,
+      definition: {
+        w: 48,
+        h: 32,
+      },
       image: bazzbomberImg,
     });
 
@@ -642,11 +705,76 @@ export class CanvasComponent {
     ];
 
     // Initial zoom
-    this.zoomTo(0, 0, 8);
+    this.zoomTo(0, 0, canvas.width / this.projectStructure.sceneWidth);
 
     this.populateImagesWithEntities();
     this.drawImages(this.images);
     this.animate();
+  }
+
+  async spriteToGameEntity(
+    projectStructure: ProjectStructure
+  ): Promise<GameEntity> {
+    /**
+     * Load up GameEntity script compiled by Rollup.
+     * Use `new module.Player(...)` to create an instance.
+     */
+    // const contents = await fs.readFile('scripts/output.js');
+    // const module = await import('data:text/javascript,' + contents);
+
+    const spriteDefinition = projectStructure.sprites[0];
+    const { canvas: sprite, animFrameCount } =
+      await convertAnimationsIntoSpritesheet(spriteDefinition);
+
+    const { frameTimer, frameWidth, frameHeight } = spriteDefinition;
+
+    const tileMap: number[][] = await this.loadJson(
+      projectStructure.bgA.tiles.mapUrl
+    );
+
+    const player = new Player(
+      new Sprite({
+        animFrameCount,
+        frameTimer,
+        image: sprite,
+        definition: {
+          w: frameWidth,
+          h: frameHeight,
+        },
+      }),
+      new TileMap({
+        h: tileMap.length,
+        w: tileMap[0].length,
+        tilemap: tileMap.flat(),
+      })
+    );
+
+    return player;
+  }
+
+  async loadJson(url) {
+    const text = await fs.readFile(url);
+    return JSON.parse(text);
+  }
+
+  async bgToDrawableImage(bg: BG): Promise<DrawableImage> {
+    const bgImage = await this.loadImage(bg.imageURL);
+    const drawableImage: DrawableImage = {
+      img: bgImage,
+    };
+
+    if (bg.tiles.mapUrl) {
+      const tileMapText = await fs.readFile(bg.tiles.mapUrl);
+      const tileMap = JSON.parse(tileMapText);
+      drawableImage.tiles = {
+        tileSize: bg.tiles.tileSize,
+        map: tileMap,
+      };
+    } else {
+      drawableImage.tiles = bg.tiles;
+    }
+
+    return drawableImage;
   }
 
   async loadImage(imageUrl: string) {
@@ -655,8 +783,16 @@ export class CanvasComponent {
       img.addEventListener('load', () => {
         resolve(img);
       });
+      if (imageUrl.indexOf('app://') !== 0) {
+        imageUrl = 'app://project/' + imageUrl;
+      }
       img.src = imageUrl;
     });
+  }
+
+  async onReloadScriptsClick() {
+    const player = await this.spriteToGameEntity(this.projectStructure);
+    this.entities[0] = player;
   }
 
   splitIntoTiles(canvas: OffscreenCanvas) {
@@ -743,15 +879,11 @@ export class CanvasComponent {
   drawImages(imgs: DrawableImages) {
     const canvas = this.canvas?.nativeElement as HTMLCanvasElement;
     const ctx = this.ctx;
-    let splitIntoTiles = false;
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
-
-    // Takes full height, scales width according to ratio
-    // ctx.drawImage(img, 0, 0, canvas.height * imageAspectRatio, canvas.height);
 
     for (const {
       img,
@@ -818,8 +950,6 @@ export class CanvasComponent {
           // Drawing on a separate canvas to prevent white grid lines due to scaling
           const oCanvas = new OffscreenCanvas(tileMapWidthPx, tileMapHeightPx);
           const oCtx = oCanvas.getContext('2d');
-          oCtx.fillStyle = 'pink';
-          oCtx.fillRect(0, 0, tileMapWidthPx, tileMapHeightPx);
           for (let tileY = 0; tileY < tileMapHeightPx / 8; tileY++) {
             for (let tileX = 0; tileX < tileMapWidthPx / 8; tileX++) {
               const tileId = tiles.map[tileY][tileX];
@@ -842,9 +972,6 @@ export class CanvasComponent {
               );
             }
           }
-          if (splitIntoTiles) {
-            this.splitIntoTiles(oCanvas);
-          }
           oCtx.strokeRect(0, 0, 512, 512);
           ctx.drawImage(oCanvas, 0, 0);
         }
@@ -853,37 +980,20 @@ export class CanvasComponent {
           // Simulate MD viewport
           ctx.save();
           ctx.beginPath();
-          ctx.rect(-offset.x, -offset.y, 320, 240);
+          ctx.rect(-offset.x, -offset.y, MD_SCREEN_HEIGHT, MD_SCREEN_WIDTH);
           ctx.clip();
         }
 
         ctx.drawImage(img, 0, 0);
 
         if (img instanceof OffscreenCanvas && img.height === 1280) {
-          // Draw collision map
-          ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-          Object.keys(this.collisionMap).forEach((tileId) => {
-            const tileIdInt = parseInt(tileId);
-            const heightMap = this.collisionMap[tileIdInt];
-
-            tileToCoords[tileId]?.forEach((coord) => {
-              heightMap.forEach((height, x) => {
-                ctx.fillRect(
-                  coord.x * 8 + (coord.hFlip ? 7 - x : x),
-                  (coord.y + 1) * 8,
-                  1,
-                  -height
-                );
-
-                // Draws tile ids - slow
-                // ctx.font = "3px serif";
-                // ctx.fillText(tileIdInt.toString(16), coord.x * 8, coord.y * 8);
-              });
-            });
-          });
-
           // Draw camera box
-          ctx.strokeRect(this.camera.camPosX, this.camera.camPosY, 320, 240);
+          ctx.strokeRect(
+            this.camera.camPosX,
+            this.camera.camPosY,
+            MD_SCREEN_HEIGHT,
+            MD_SCREEN_WIDTH
+          );
         }
 
         if (this.clipViewport) {
@@ -928,6 +1038,34 @@ export class CanvasComponent {
       }
 
       ctx.stroke();
+    }
+
+    if (this.drawCollisionMap) {
+      const bga = this.images[1];
+      ctx.translate(bga.offset.x, bga.offset.y);
+
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+      Object.keys(this.collisionMap).forEach((tileId) => {
+        const tileIdInt = parseInt(tileId);
+        const heightMap = this.collisionMap[tileIdInt];
+
+        this.tileToCoords[tileId]?.forEach((coord) => {
+          heightMap.forEach((height, x) => {
+            ctx.fillRect(
+              coord.x * 8 + (coord.hFlip ? 7 - x : x),
+              (coord.y + 1) * 8,
+              1,
+              -height
+            );
+
+            // Draws tile ids - slow
+            // ctx.font = "3px serif";
+            // ctx.fillText(tileIdInt.toString(16), coord.x * 8, coord.y * 8);
+          });
+        });
+      });
+
+      ctx.translate(-bga.offset.x, -bga.offset.y);
     }
 
     if (this.selectedTileNet) {
@@ -976,11 +1114,12 @@ export class CanvasComponent {
   }
 
   private async compactTileMap() {
-    const { img, tiles } = this.images.find((image) => image.id === 'tileMap')!;
-    const compactIdMap = tiles.map
+    // bgA layer containing tileMap
+    const { img, tiles } = this.images[1];
+    /** { originalTileId: compactTileId } e.g. { 402: 1 } */
+    const compactIdMap: { [originalTileId: number]: number } = tiles.map
       .flat()
       .filter(getUnique)
-      // .sort()
       .reduce((acc, val) => {
         acc[val] = Object.keys(acc).length;
         return acc;
@@ -992,14 +1131,23 @@ export class CanvasComponent {
     // Deep copy so we can modify it
     const tileMap: number[][] = JSON.parse(JSON.stringify(tiles.map));
 
-    // Make it 64 bytes wide and compact it
+    // Compact the tilemap
     tileMap.forEach((arr) => {
-      arr.length = 64;
       for (let i = 0; i < arr.length; i++) {
         arr[i] = compactIdMap[arr[i]];
       }
     });
 
+    // Update collision map to point to compacted tilemap
+    const collisionMap: CollisionMap = Object.keys(this.collisionMap).reduce(
+      (acc, key) => {
+        acc[compactIdMap[key]] = this.collisionMap[key];
+        return acc;
+      },
+      {}
+    );
+
+    // Grab all unique tiles and draw them side-by-side in one line
     const tilesPerLine = (img as HTMLImageElement).width / tiles.tileSize;
     const uniqueTileCount = Object.keys(compactIdMap).length;
     const oCanvas = new OffscreenCanvas(uniqueTileCount * 8, 8);
@@ -1024,11 +1172,27 @@ export class CanvasComponent {
       );
     });
 
-    // oCanvas.convertToBlob().then((blob) => {
-    //   const url = URL.createObjectURL(blob);
-    //   window.open(url);
-    // });
+    return {
+      collisionMap,
+      tileMap,
+      bgaImageUrl: URL.createObjectURL(await oCanvas.convertToBlob()),
+    };
+  }
 
-    compileRom(URL.createObjectURL(await oCanvas.convertToBlob()), tileMap);
+  async onCompileRomClick() {
+    const { collisionMap, tileMap, bgaImageUrl } = await this.compactTileMap();
+    const compileData: CompileData = {
+      collisionMap,
+      bgA: {
+        imageURL: bgaImageUrl,
+        tiles: {
+          map: tileMap,
+        },
+      },
+      bgB: this.projectStructure.bgB,
+      sprites: this.projectStructure.sprites
+    };
+
+    compileRom(compileData);
   }
 }
