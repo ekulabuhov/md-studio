@@ -15,18 +15,26 @@ import { FIX32, fix32ToInt } from './maths';
 import { Sprite } from './sprite_eng';
 import { getHeightValue } from './res_collision';
 import { TileMap } from './vdp_tile';
+import { ItemsDust } from './items_dust';
+import { GameEntity } from './game_entity';
 
 const ANIM_STAND = 0;
 const ANIM_RUN = 1;
+const ANIM_JUMP = 2;
+const ANIM_FALL = 3;
+const ANIM_DOUBLE_JUMP = 4;
 const ACCEL = FIX32(0.1);
+
+const STATE_DEAD = 0;
 
 export class Player {
   // Horizontal joystick state: left (-1), right (+1), none (0)
   xOrder = 0;
   // Vertical joystick state: up (-1), down (+1), none (0)
   yOrder = 0;
-  // Current movement speed
+  /** X velocity in fix32 */ 
   movX: fix32 = 0;
+  /** Y velocity in fix32 */ 
   movY: fix32 = 0;
   // Current position
   posX: fix32 = FIX32(48);
@@ -34,15 +42,20 @@ export class Player {
   // Horizontal flip
   hFlip = false;
   // Constants
-  maxSpeed: fix32 = FIX32(8);
-  jumpSpeed: fix32 = FIX32(7.8);
+  maxSpeed: fix32 = FIX32(3);
+  jumpSpeed: fix32 = FIX32(5.8);
   gravity: fix32 = FIX32(0.32);
   sprite: Sprite;
   tileMap: TileMap;
+  doubleJump: boolean;
+  itemDust: ItemsDust;
+  checksCollisions = true;
+  state: number;
 
-  constructor(sprite: Sprite, tileMap: TileMap) {
+  constructor(sprite: Sprite, tileMap: TileMap, itemDust: ItemsDust) {
     this.sprite = sprite;
     this.tileMap = tileMap;
+    this.itemDust = itemDust;
   }
 
   handleInput(value: u16) {
@@ -83,8 +96,6 @@ export class Player {
     this.posX += this.movX;
     this.posY += this.movY;
 
-    this.sprite.setAnim(this.movX != 0 ? ANIM_RUN : ANIM_STAND);
-
     const posYInPx = fix32ToInt(this.posY);
     const posXInPx = fix32ToInt(this.posX);
 
@@ -103,6 +114,11 @@ export class Player {
     } else {
       // apply gravity if needed
       this.movY += this.gravity;
+
+      // Speed higher than 8 makes our character fall through the floor
+      if (this.movY > FIX32(7)) {
+        this.movY = FIX32(7);
+      }
     }
 
     // Check that we hit the ceiling
@@ -114,6 +130,7 @@ export class Player {
       }
     }
 
+    // Check that we're hitting a wall on horizontal axis
     if (this.movX) {
       const spriteMiddleY = posYInPx + this.sprite.definition.h / 2;
       const spriteX = (this.movX > 0)
@@ -125,6 +142,17 @@ export class Player {
         this.posX -= this.movX;
         this.movX = 0;
       }
+    }
+
+    if (this.movY < 0 && this.doubleJump) {
+      this.sprite.setAnim(ANIM_DOUBLE_JUMP);
+    } else if (this.movY < 0) {
+      this.sprite.setAnim(ANIM_JUMP);
+    } else if (this.movY > 0) {
+      this.sprite.setAnim(ANIM_FALL);
+      this.doubleJump = false;
+    } else {
+      this.sprite.setAnim(this.movX != 0 ? ANIM_RUN : ANIM_STAND);
     }
 
     // finally update sprite state from internal state
@@ -153,6 +181,10 @@ export class Player {
   }
 
   getCollision(posX: fix32, posY: fix32): u8 {
+    if (!this.checksCollisions) { 
+      return 0;
+    }
+
     // Divide by 8 to get the tileX
     const tileX = posX >> 3;
     // Divide by 8 to get the tileY
@@ -172,6 +204,8 @@ export class Player {
     if (changed & state & anyButton) {
       if (this.movY == 0) {
         this.movY = -this.jumpSpeed;
+        this.itemDust.place(this.posX, this.posY);
+        
         // XGM2_playPCMEx(
         //   sonic_jump_sfx,
         //   sizeof(sonic_jump_sfx),
@@ -180,11 +214,29 @@ export class Player {
         //   TRUE,
         //   FALSE
         // );
+      } else if (!this.doubleJump) {
+        // If we're in the air already - do a double jump!
+        this.doubleJump = true;
+        this.movY = -this.jumpSpeed;
       }
     }
 
     if (changed & ~state & anyButton) {
       this.movY = this.movY >> 1;
     }
+  }
+
+  die(from: GameEntity) {
+    if (this.state === STATE_DEAD) {
+      return;
+    } 
+    this.state = STATE_DEAD;
+
+    this.movX -= FIX32(10.8);
+    if (from.posX < this.posX) {
+      this.movX = -this.movX;
+    }
+    this.movY -= FIX32(5.8);
+    this.checksCollisions = false;
   }
 }

@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('versions', {
 
 contextBridge.exposeInMainWorld('fs', {
   getFileList: (directory) => ipcRenderer.invoke('getFileList', directory),
-  writeFile: (filePath, content) => ipcRenderer.invoke('writeFile', filePath, content),
+  writeFile: (filePath, content, options) => ipcRenderer.invoke('writeFile', filePath, content, options),
   deleteFile: (filePath) => ipcRenderer.invoke('deleteFile', filePath),
   readFile: (filePath) => ipcRenderer.invoke('readFile', filePath),
 })

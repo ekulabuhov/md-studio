@@ -48,3 +48,55 @@ export function showCanvasInNewWindow(canvas: OffscreenCanvas) {
     window.open(url);
   });
 }
+
+export function arrayIsSubset(arraySmall: Array<any>, arrayBig: Array<any>) {
+  return arraySmall.every((val) => arrayBig.includes(val));
+}
+
+/**
+ * TrapsSaw -> Traps_Saw
+ */
+export function camelToSnakeCase(str: string) {
+  return str.split(/(?=[A-Z])/).join('_');
+} 
+
+export function snakeCaseToPascalCase(string) {
+  return `${string}`
+  .toLowerCase()
+  .replace(new RegExp(/[-_]+/, 'g'), ' ')
+  .replace(new RegExp(/[^\w\s]/, 'g'), '')
+  .replace(
+    new RegExp(/\s+(.)(\w*)/, 'g'),
+    ($1, $2, $3) => `${$2.toUpperCase() + $3}`
+  )
+  .replace(new RegExp(/\w/), s => s.toUpperCase());
+}
+
+export function capitalizeFirstLetter(string: string) {
+  return string.charAt(0).toUpperCase() + string.slice(1);
+}
+
+export function replaceColor(
+  imageData: ImageData,
+  searchValue: { r: number; g: number; b: number },
+  replaceValue: { r: number; g: number; b: number }
+) {
+  // iterate through pixel data (1 pixels consists of 4 ints in the array)
+  for (var i = 0, len = imageData.data.length; i < len; i += 4) {
+    var r = imageData.data[i];
+    var g = imageData.data[i + 1];
+    var b = imageData.data[i + 2];
+
+    if (
+      r == searchValue.r &&
+      g == searchValue.g &&
+      b == searchValue.b
+    ) {
+      imageData.data[i] = replaceValue.r;
+      imageData.data[i + 1] = replaceValue.g;
+      imageData.data[i + 2] = replaceValue.b;
+    }
+  }
+
+  return imageData;
+}

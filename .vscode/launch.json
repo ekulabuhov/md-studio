@@ -29,6 +29,20 @@
        * Assuming locally installed
        */
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx"
+    },
+    {
+      "name": "tsx bin/tests.ts",
+      "type": "node",
+      "request": "launch",
+
+      // Debug current file in VSCode
+      "program": "${workspaceFolder}/bin/tests.ts",
+
+      /*
+       * Path to tsx binary
+       * Assuming locally installed
+       */
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx"
     }
   ]
 }

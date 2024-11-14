@@ -1,7 +1,6 @@
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { Player } from '../player';
 import { Camera } from '../camera';
-import { BazzBomber } from '../bazzbomber';
 import { Sprite } from '../sprite_eng';
 import {
   BUTTON_UP,
@@ -17,7 +16,7 @@ import {
   BUTTON_Z,
   BUTTON_MODE,
 } from '../joy';
-import { fix32ToInt, FIX32 } from '../maths';
+import { FIX32, fix32ToInt } from '../maths';
 import {
   CollisionMap,
   loadCollisionMap,
@@ -29,13 +28,16 @@ import { fix32, u16 } from '../types';
 import { Modal } from 'bootstrap';
 import { AssetDrawerComponent } from '../asset-drawer/asset-drawer.component';
 import { Nostalgist } from 'nostalgist';
-import { getImagePixelData, getUnique } from '../utils';
+import { getUnique } from '../utils';
 import {
   CompileData,
   compileRom,
   convertAnimationsIntoSpritesheet,
 } from '../compile_rom';
 import { TileMap } from '../vdp_tile';
+import { TrapsSaw } from '../traps_saw';
+import { ItemsApple } from '../items_apple';
+import { ItemsDust } from '../items_dust';
 
 type DrawableImage = {
   id?: string;
@@ -73,14 +75,18 @@ type BG = {
 
 type SpriteDefinition = {
   id: string;
-  animFrameCount: number[];
+  // Frame count in each animation. Will be calculated if not provided.
+  animFrameCount?: number[];
   frameTimer: number;
   frameWidth: number;
   frameHeight: number;
   animations: {
     name: string;
-    imageURL: string;
+    imageURL?: string;
+    frames?: string[];
   }[];
+  script;
+  params: any[];
 };
 
 type ProjectStructure = {
@@ -96,14 +102,76 @@ export type GameEntity = {
   posX: fix32;
   posY: fix32;
   sprite: Sprite;
-  hFlip: boolean;
+  hFlip?: boolean;
   update();
   handleInput?(joyState: number);
   doJoyAction?(joy: u16, changed: u16, state: u16);
+  handleCollision?(other: GameEntity);
 };
 
 const MD_SCREEN_WIDTH = 224;
 const MD_SCREEN_HEIGHT = 320;
+const INJECT_BGA_TILEMAP = '&bga_tilemap';
+const INJECT_CAMERA = '&camera';
+
+function newTrapSawSprite(params: any[]): SpriteDefinition {
+  return {
+    id: 'traps_saw',
+    frameTimer: 5,
+    frameWidth: 38,
+    frameHeight: 38,
+    animations: [
+      {
+        name: 'spin',
+        imageURL: 'app://project/PixelFrog/Traps/Saw/On (38x38).png',
+      },
+    ],
+    script: TrapsSaw,
+    params: [...params, INJECT_CAMERA],
+  };
+}
+
+function newApple(params): SpriteDefinition {
+  return {
+    id: 'items_apple',
+    frameTimer: 5,
+    frameWidth: 32,
+    frameHeight: 32,
+    animations: [
+      {
+        name: 'idle',
+        imageURL: 'app://project/PixelFrog/Items/Fruits/Apple.png',
+      },
+      {
+        name: 'collected',
+        imageURL: 'app://project/PixelFrog/Items/Fruits/Collected.png',
+      },
+    ],
+    script: ItemsApple,
+    params,
+  };
+}
+
+function newOrange(params): SpriteDefinition {
+  return {
+    id: 'items_orange',
+    frameTimer: 5,
+    frameWidth: 32,
+    frameHeight: 32,
+    animations: [
+      {
+        name: 'idle',
+        imageURL: 'app://project/PixelFrog/Items/Fruits/Orange.png',
+      },
+      {
+        name: 'collected',
+        imageURL: 'app://project/PixelFrog/Items/Fruits/Collected.png',
+      },
+    ],
+    script: ItemsApple,
+    params,
+  };
+}
 
 @Component({
   selector: 'app-canvas',
@@ -137,8 +205,26 @@ export class CanvasComponent {
     },
     sprites: [
       {
-        id: 'ninja_frog',
-        animFrameCount: [1, 2, 6, 4, 2, 1, 1, 5],
+        id: 'smoke',
+        frameTimer: 5,
+        frameWidth: 32,
+        frameHeight: 32,
+        animations: [
+          {
+            name: 'idle',
+            frames: [
+              'app://project/FXPack_nyknck/Smoke/FX002/FX002_05.png',
+              'app://project/FXPack_nyknck/Smoke/FX002/FX002_06.png',
+              'app://project/FXPack_nyknck/Smoke/FX002/FX002_07.png',
+              'app://project/FXPack_nyknck/Smoke/FX002/FX002_08.png',
+            ],
+          },
+        ],
+        script: ItemsDust,
+        params: [],
+      },
+      {
+        id: 'player',
         frameTimer: 5,
         frameWidth: 32,
         frameHeight: 32,
@@ -153,8 +239,72 @@ export class CanvasComponent {
             imageURL:
               'app://project/PixelFrog/Main Characters/Mask Dude/Run (32x32).png',
           },
+          {
+            name: 'jump',
+            imageURL:
+              'app://project/PixelFrog/Main Characters/Mask Dude/Jump (32x32).png',
+          },
+          {
+            name: 'fall',
+            imageURL:
+              'app://project/PixelFrog/Main Characters/Mask Dude/Fall (32x32).png',
+          },
+          {
+            name: 'double_jump',
+            imageURL:
+              'app://project/PixelFrog/Main Characters/Mask Dude/Double Jump (32x32).png',
+          },
         ],
+        script: Player,
+        params: [INJECT_BGA_TILEMAP, '&smoke'],
       },
+      newTrapSawSprite([
+        [
+          [84, 68],
+          [196, 68],
+          [196, 132],
+          [84, 132],
+        ],
+        4,
+      ]),
+      newTrapSawSprite([
+        [
+          [196, 132],
+          [84, 132],
+          [84, 68],
+          [196, 68],
+        ],
+        4,
+      ]),
+      newTrapSawSprite([
+        [
+          [308, -12],
+          [308, 68],
+        ],
+        2,
+      ]),
+      newTrapSawSprite([
+        [
+          [340, 84],
+          [452, 84],
+        ],
+        2,
+      ]),
+      newApple([440, 200]),
+      newApple([440, 168]),
+      newApple([440, 136]),
+      newApple([408, 200]),
+      newApple([408, 168]),
+      newApple([408, 136]),
+      newApple([376, 168]),
+      newApple([360, 136]),
+      newOrange([96, 40]),
+      newOrange([128, 40]),
+      newOrange([160, 40]),
+      newOrange([192, 40]),
+      newOrange([176, 8]),
+      newOrange([144, 8]),
+      newOrange([112, 8]),
     ],
   };
   /** [y][x]: tile_idx */
@@ -582,7 +732,7 @@ export class CanvasComponent {
   }
 
   private animate() {
-    const fps = 90;
+    const fps = this.shouldAnimate ? 70 : 10;
     setTimeout(() => {
       requestAnimationFrame((ts) => {
         this.animate();
@@ -590,17 +740,32 @@ export class CanvasComponent {
     }, 1000 / fps);
 
     if (this.shouldAnimate) {
-      for (const entity of this.entities) {
+      const player = this.entities[0];
+      for (let i = 0; i < this.entities.length; i++) {
+        const entity = this.entities[i];
+
         entity.handleInput?.(this.joyState);
         entity.update();
         // advances animations
         entity.sprite.update();
+
+        // Box collision
+        if (
+          i > 0 &&
+          entity.posX < player.posX + FIX32(player.sprite.definition.w) &&
+          entity.posX + FIX32(entity.sprite.definition.w) > player.posX &&
+          entity.posY < player.posY + FIX32(player.sprite.definition.h) &&
+          entity.posY + FIX32(entity.sprite.definition.h) > player.posY
+        ) {
+          entity.handleCollision?.(player);
+          player.handleCollision?.(entity);
+        }
       }
 
       this.populateImagesWithEntities();
-    }
 
-    this.drawImages(this.images);
+      this.drawImages(this.images);
+    }
   }
 
   private populateImagesWithEntities() {
@@ -622,6 +787,10 @@ export class CanvasComponent {
           x: -this.camera.bgbPosX,
           y: -this.camera.bgbPosY,
         };
+      }
+
+      if (!entity.sprite.visible) {
+        continue;
       }
 
       this.images.push({
@@ -659,7 +828,6 @@ export class CanvasComponent {
 
     const bgA = await this.bgToDrawableImage(this.projectStructure.bgA);
     const bgB = await this.bgToDrawableImage(this.projectStructure.bgB);
-    const player = await this.spriteToGameEntity(this.projectStructure);
 
     this.coordsToTile = bgA.tiles.map;
     for (let y = 0; y < bgA.tiles.map.length; y++) {
@@ -679,30 +847,26 @@ export class CanvasComponent {
     }, 10000);
 
     this.camera = new Camera(
-      player as Player,
       this.projectStructure.sceneWidth,
       this.projectStructure.sceneHeight
     );
 
-    const bazzbomberImg = await this.addTransparency('res/sprite/enemy01.png', {
-      r: 0xff,
-      g: 0x00,
-      b: 0xf7,
-    });
-    const bazzbomberSprite = new Sprite({
-      animFrameCount: [2],
-      frameTimer: 5,
-      definition: {
-        w: 48,
-        h: 32,
-      },
-      image: bazzbomberImg,
-    });
+    const resolvedEntities = {};
+    for (const sprite of this.projectStructure.sprites) {
+      const gameEntity = await this.spriteToGameEntity(
+        this.projectStructure,
+        sprite,
+        resolvedEntities
+      );
 
-    this.entities = [
-      player,
-      new BazzBomber(bazzbomberSprite, FIX32(408), FIX32(800)),
-    ];
+      if (sprite.id === 'player') {
+        this.entities.unshift(gameEntity);
+      } else {
+        this.entities.push(gameEntity);
+      }
+    }
+
+    this.camera.follows = this.entities[0] as Player;
 
     // Initial zoom
     this.zoomTo(0, 0, canvas.width / this.projectStructure.sceneWidth);
@@ -713,7 +877,9 @@ export class CanvasComponent {
   }
 
   async spriteToGameEntity(
-    projectStructure: ProjectStructure
+    projectStructure: ProjectStructure,
+    spriteDefinition: SpriteDefinition,
+    gameEntities: { [id: string]: GameEntity }
   ): Promise<GameEntity> {
     /**
      * Load up GameEntity script compiled by Rollup.
@@ -722,17 +888,21 @@ export class CanvasComponent {
     // const contents = await fs.readFile('scripts/output.js');
     // const module = await import('data:text/javascript,' + contents);
 
-    const spriteDefinition = projectStructure.sprites[0];
-    const { canvas: sprite, animFrameCount } =
-      await convertAnimationsIntoSpritesheet(spriteDefinition);
+    const {
+      canvas: sprite,
+      animFrameCount,
+      frameWidth,
+      frameHeight,
+    } = await convertAnimationsIntoSpritesheet(spriteDefinition);
 
-    const { frameTimer, frameWidth, frameHeight } = spriteDefinition;
+    const { frameTimer } = spriteDefinition;
 
     const tileMap: number[][] = await this.loadJson(
       projectStructure.bgA.tiles.mapUrl
     );
 
-    const player = new Player(
+    // First parameter is always sprite
+    const params = [
       new Sprite({
         animFrameCount,
         frameTimer,
@@ -742,14 +912,42 @@ export class CanvasComponent {
           h: frameHeight,
         },
       }),
-      new TileMap({
-        h: tileMap.length,
-        w: tileMap[0].length,
-        tilemap: tileMap.flat(),
+    ];
+
+    params.push(
+      ...spriteDefinition.params.map((param) => {
+        if (param === INJECT_BGA_TILEMAP) {
+          return new TileMap({
+            h: tileMap.length,
+            w: tileMap[0].length,
+            tilemap: tileMap.flat(),
+          });
+        }
+
+        if (param === INJECT_CAMERA) {
+          return this.camera;
+        }
+
+        if (typeof param === 'string' && param[0] === '&') {
+          const key = (param as string).slice(1);
+          if (!gameEntities[key]) {
+            throw new Error(`${key} is not present`);
+          }
+          return gameEntities[key];
+        }
+
+        return param;
       })
     );
 
-    return player;
+    const gameEntity = new (Function.prototype.bind.apply(
+      spriteDefinition.script,
+      [null, ...params]
+    ))();
+
+    gameEntities[spriteDefinition.id] = gameEntity;
+
+    return gameEntity;
   }
 
   async loadJson(url) {
@@ -791,7 +989,11 @@ export class CanvasComponent {
   }
 
   async onReloadScriptsClick() {
-    const player = await this.spriteToGameEntity(this.projectStructure);
+    const player = await this.spriteToGameEntity(
+      this.projectStructure,
+      this.projectStructure.sprites[0],
+      {}
+    );
     this.entities[0] = player;
   }
 
@@ -847,33 +1049,6 @@ export class CanvasComponent {
     });
   }
 
-  async addTransparency(
-    imageUrl: string,
-    transparentColor: { r: number; g: number; b: number }
-  ) {
-    const { pixels, context, canvas } = await getImagePixelData(imageUrl);
-
-    // iterate through pixel data (1 pixels consists of 4 ints in the array)
-    for (var i = 0, len = pixels.data.length; i < len; i += 4) {
-      var r = pixels.data[i];
-      var g = pixels.data[i + 1];
-      var b = pixels.data[i + 2];
-
-      // if the pixel matches our transparent color, set alpha to 0
-      if (
-        r == transparentColor.r &&
-        g == transparentColor.g &&
-        b == transparentColor.b
-      ) {
-        pixels.data[i + 3] = 0;
-      }
-    }
-
-    context.putImageData(pixels, 0, 0);
-
-    return canvas;
-  }
-
   scrollOffsetY = 0;
 
   drawImages(imgs: DrawableImages) {
@@ -916,7 +1091,7 @@ export class CanvasComponent {
           source.w,
           source.h
         );
-        // Draw bounding box around entities
+        // Draw bounding box (hitbox) around entities
         ctx.strokeRect(0 + (hFlip ? -source.w : 0), 0, source.w, source.h);
         // Draw a ground sensor
         ctx.beginPath();
@@ -928,8 +1103,16 @@ export class CanvasComponent {
         if (tiles.coverMode === 'tile') {
           // this.scrollOffsetY += 0.1;
           // this.scrollOffsetY %= 64;
-          for (let y = 0; y < 512; y += tiles.tileSize) {
-            for (let x = 0; x < 512; x += tiles.tileSize) {
+          for (
+            let y = 0;
+            y < this.projectStructure.sceneHeight;
+            y += tiles.tileSize
+          ) {
+            for (
+              let x = 0;
+              x < this.projectStructure.sceneWidth;
+              x += tiles.tileSize
+            ) {
               ctx.drawImage(
                 img,
                 0,
@@ -1190,7 +1373,7 @@ export class CanvasComponent {
         },
       },
       bgB: this.projectStructure.bgB,
-      sprites: this.projectStructure.sprites
+      sprites: this.projectStructure.sprites,
     };
 
     compileRom(compileData);

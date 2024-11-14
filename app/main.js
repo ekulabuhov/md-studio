@@ -64,8 +64,8 @@ app.whenReady().then(() => {
     return fileList;
   });
 
-  ipcMain.handle("writeFile", (_, filePath, content) => {
-    writeFileSync(projectRoot + '/' + filePath, content);
+  ipcMain.handle("writeFile", (_, filePath, content, options) => {
+    writeFileSync(projectRoot + '/' + filePath, content, options);
   });
 
   ipcMain.handle("deleteFile", (_, filePath) => {

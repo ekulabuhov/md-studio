@@ -1,4 +1,5 @@
 import { Player } from './player';
+import { random } from './tools';
 import { s16, u16 } from './types';
 
 export class Camera {
@@ -11,9 +12,9 @@ export class Camera {
   mapWidth = 0;
   mapHeight = 0;
   follows: Player;
+  shakeDuration: number;
 
-  constructor(follows: Player, mapWidth: u16, mapHeight: u16) {
-    this.follows = follows;
+  constructor(mapWidth: u16, mapHeight: u16) {
     this.mapWidth = mapWidth;
     this.mapHeight = mapHeight;
   }
@@ -44,8 +45,17 @@ export class Camera {
     if (npy_cam < 0) npy_cam = 0;
     else if (npy_cam > this.mapHeight - 224) npy_cam = this.mapHeight - 224;
 
+    if (this.shakeDuration) {
+      npx_cam += random() % 6 - 3;
+      this.shakeDuration--;
+    }
+
     // set new camera position
     this.setCameraPosition(npx_cam, npy_cam);
+  }
+
+  screenShake(duration: u16) {
+    this.shakeDuration = duration;
   }
 
   setCameraPosition(x: s16, y: s16) {

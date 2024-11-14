@@ -20,9 +20,10 @@ export class fs {
 
   public static async writeFile(
     filePath: string,
-    content: FileSystemWriteChunkType
+    content: FileSystemWriteChunkType,
+    options?: { flag?: string | undefined; }
   ) {
-    return await (window as any).fs.writeFile(filePath, content);
+    return await window.fs.writeFile(filePath, content, options);
   }
 
   public static async createDirectory(name: string) {

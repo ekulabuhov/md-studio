@@ -1,3 +1,5 @@
+import { arrayIsSubset } from "./utils";
+
 /**
  * Implements "greedy best fit" optimizer from SuperFamiconv
  * Reference: https://github.com/Optiroc/SuperFamiconv/blob/d56c29263e9c1cffaf81458f7a3531abbcab8471/src/Palette.cpp#L380
@@ -15,6 +17,12 @@ export function calculatePalette(canvas: OffscreenCanvas, existingPalettes?: num
   palettes: number[][];
   coloredImage: ImageData;
 } {
+  if (canvas.width % 8) {
+    throw new Error(`canvas width expected to be multiple of 8, actual: ${canvas.width}`)
+  } else if (canvas.height % 8) {
+    throw new Error(`canvas height expected to be multiple of 8, actual: ${canvas.height}`)
+  }
+
   const roundToTwo = (val) => Math.floor(val / 2) * 2;
   const context = canvas.getContext('2d')!;
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -51,6 +59,10 @@ export function calculatePalette(canvas: OffscreenCanvas, existingPalettes?: num
         pixels.data[i] = mdR * 18;
         pixels.data[i + 1] = mdG * 18;
         pixels.data[i + 2] = mdB * 18;
+        // set alpha to max
+        if (pixels.data[i + 3]) {
+          pixels.data[i + 3] = 255;
+        }
       }
     }
 
@@ -103,8 +115,4 @@ function arraysEqual(array1, array2) {
     .every(function (value, index) {
       return value === array2Sorted[index];
     });
-}
-
-function arrayIsSubset(arraySmall: Array<any>, arrayBig: Array<any>) {
-  return arraySmall.every((val) => arrayBig.includes(val));
 }
