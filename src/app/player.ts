@@ -1,4 +1,4 @@
-import { fix32, u16, u8 } from './types';
+import { fix32, s32, s8, u16, u8 } from './types';
 import {
   BUTTON_A,
   BUTTON_B,
@@ -14,7 +14,7 @@ import {
 import { FIX32, fix32ToInt } from './maths';
 import { Sprite } from './sprite_eng';
 import { getHeightValue } from './res_collision';
-import { TileMap } from './vdp_tile';
+import { BoxCollision, TileMap } from './vdp_tile';
 import { ItemsDust } from './items_dust';
 import { GameEntity } from './game_entity';
 
@@ -32,9 +32,9 @@ export class Player {
   xOrder = 0;
   // Vertical joystick state: up (-1), down (+1), none (0)
   yOrder = 0;
-  /** X velocity in fix32 */ 
+  /** X velocity in fix32 */
   movX: fix32 = 0;
-  /** Y velocity in fix32 */ 
+  /** Y velocity in fix32 */
   movY: fix32 = 0;
   // Current position
   posX: fix32 = FIX32(48);
@@ -51,6 +51,7 @@ export class Player {
   itemDust: ItemsDust;
   checksCollisions = true;
   state: number;
+  hitbox: BoxCollision;
 
   constructor(sprite: Sprite, tileMap: TileMap, itemDust: ItemsDust) {
     this.sprite = sprite;
@@ -92,24 +93,50 @@ export class Player {
       else this.movX -= this.movX >> 4;
     }
 
-    // update position from movement
-    this.posX += this.movX;
-    this.posY += this.movY;
+    let posYInPx = fix32ToInt(this.posY);
+    let posXInPx = fix32ToInt(this.posX);
 
-    const posYInPx = fix32ToInt(this.posY);
-    const posXInPx = fix32ToInt(this.posX);
+    // Check that we're hitting a wall on horizontal axis
+    if (this.movX) {
+      posXInPx = fix32ToInt(this.posX + this.movX);
+      const spriteX =
+        this.movX > 0
+          ? posXInPx + this.hitbox.w + this.hitbox.x
+          : posXInPx + this.hitbox.x;
 
-    // posX and posY are top left corner of the sprite
-    const spriteBottomY = posYInPx + this.sprite.definition.h;
-    // Put the sensor in the middle of the sprite
-    const spriteMiddleX = posXInPx + this.sprite.definition.w / 2;
+      const sideCollision = this.getCollision(
+        spriteX + (this.hFlip ? -1 : 1),
+        posYInPx + this.hitbox.y,
+        1,
+        this.hitbox.h
+      );
+      if (sideCollision) {
+        const offsetX =
+          spriteX - (((spriteX >> 3) + ((spriteX & 4) >> 2)) << 3);
 
-    const bottomCollision = this.getCollision(spriteMiddleX, spriteBottomY);
+        // console.log({whole: (spriteX >> 3), frac: ((spriteX & 4) >> 2)})
+        // const offsetX = spriteX - Math.round(spriteX / 8) * 8;
+        this.posX += this.movX - FIX32(offsetX);
+        this.movX = 0;
+        posXInPx = fix32ToInt(this.posX);
+      }
+    }
+
+    const spriteBottomY =
+      fix32ToInt(this.posY + this.movY) + this.hitbox.y + this.hitbox.h;
+    const bottomCollision = this.getCollision(
+      posXInPx + this.hitbox.x,
+      spriteBottomY,
+      this.hitbox.w,
+      1
+    );
+
     // Check if we're falling down or no gravity applied
     // Stops player from snapping to floor if he's jumping through platform
     if (bottomCollision && this.movY >= 0) {
-      const offsetY = spriteBottomY - (spriteBottomY >> 3 << 3);
-      this.posY -= FIX32(offsetY);
+      this.doubleJump = false;
+      const offsetY = spriteBottomY - ((spriteBottomY >> 3) << 3);
+      this.posY += this.movY - FIX32(offsetY);
       this.movY = 0;
     } else {
       // apply gravity if needed
@@ -124,25 +151,21 @@ export class Player {
     // Check that we hit the ceiling
     // Are we moving up?
     if (this.movY < 0) {
-      const topCollision = this.getCollision(spriteMiddleX, posYInPx);
+      posYInPx = fix32ToInt(this.posY + this.movY);
+      const topCollision = this.getCollision(
+        posXInPx + this.hitbox.x,
+        posYInPx,
+        this.hitbox.w,
+        1
+      );
       if (topCollision) {
         this.movY = 0;
       }
     }
 
-    // Check that we're hitting a wall on horizontal axis
-    if (this.movX) {
-      const spriteMiddleY = posYInPx + this.sprite.definition.h / 2;
-      const spriteX = (this.movX > 0)
-        ? posXInPx + this.sprite.definition.w
-        : posXInPx;
-
-      const sideCollision = this.getCollision(spriteX, spriteMiddleY);
-      if (sideCollision) {
-        this.posX -= this.movX;
-        this.movX = 0;
-      }
-    }
+    // update position from movement
+    this.posY += this.movY;
+    this.posX += this.movX;
 
     if (this.movY < 0 && this.doubleJump) {
       this.sprite.setAnim(ANIM_DOUBLE_JUMP);
@@ -150,7 +173,6 @@ export class Player {
       this.sprite.setAnim(ANIM_JUMP);
     } else if (this.movY > 0) {
       this.sprite.setAnim(ANIM_FALL);
-      this.doubleJump = false;
     } else {
       this.sprite.setAnim(this.movX != 0 ? ANIM_RUN : ANIM_STAND);
     }
@@ -176,12 +198,12 @@ export class Player {
     //   }
     // }
 
-    if (this.movX > 0) this.hFlip = false;
-    else if (this.movX < 0) this.hFlip = true;
+    if (this.xOrder > 0) this.hFlip = false;
+    else if (this.xOrder < 0) this.hFlip = true;
   }
 
-  getCollision(posX: fix32, posY: fix32): u8 {
-    if (!this.checksCollisions) { 
+  getCollision(posX: s32, posY: s32, width: s8, height: s8): u8 {
+    if (!this.checksCollisions) {
       return 0;
     }
 
@@ -189,12 +211,26 @@ export class Player {
     const tileX = posX >> 3;
     // Divide by 8 to get the tileY
     const tileY = posY >> 3;
-    const tileMapIndex = tileY * this.tileMap.w + tileX;
-    const word = this.tileMap.tilemap[tileMapIndex];
-    // tileIdx is last 10 bits
-    const tileId = word & 0x7ff;
+    let tileMapIndex = tileY * this.tileMap.w + tileX;
     const offsetX = posX - tileX * 8;
-    return getHeightValue(tileId, offsetX);
+    width += offsetX;
+    while (height > 0) {
+      while (width > 0) {
+        const word = this.tileMap.tilemap[tileMapIndex++];
+        // tileIdx is last 10 bits
+        const tileId = word & 0x7ff;
+        const heightValue = getHeightValue(tileId, offsetX);
+        if (heightValue) {
+          return heightValue;
+        }
+        width -= 8;
+      }
+      tileMapIndex += this.tileMap.w - 1;
+      height -= 8;
+      width += 8;
+    }
+
+    return 0;
   }
 
   doJoyAction(joy: u16, changed: u16, state: u16) {
@@ -205,7 +241,7 @@ export class Player {
       if (this.movY == 0) {
         this.movY = -this.jumpSpeed;
         this.itemDust.place(this.posX, this.posY);
-        
+
         // XGM2_playPCMEx(
         //   sonic_jump_sfx,
         //   sizeof(sonic_jump_sfx),
@@ -229,7 +265,7 @@ export class Player {
   die(from: GameEntity) {
     if (this.state === STATE_DEAD) {
       return;
-    } 
+    }
     this.state = STATE_DEAD;
 
     this.movX -= FIX32(10.8);

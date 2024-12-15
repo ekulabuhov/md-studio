@@ -1,0 +1,123 @@
+<div class="d-flex">
+  <p-tree
+    class="scene-tree"
+    [value]="files"
+    selectionMode="single"
+    (selectionChange)="onSelectionChange($any($event).data)"
+    [(selection)]="selectedFile"
+    [contextMenu]="cm"
+  />
+  <p-contextMenu #cm [model]="menuItems" />
+
+  <app-canvas
+    class="flex-fill"
+    [selectedEntityIndex]="selectedSpriteIndex"
+    (entitySelect)="onEntitySelect($event)"
+  ></app-canvas>
+
+  <div class="m-3" style="width: 250px">
+    <ng-container *ngIf="!selectedSprite">
+      <div class="mb-3">
+        <label class="form-label">Background</label>
+        <div class="d-flex gap-1" (click)="onFileSelect('bga')">
+          <div
+            class="flex-shrink-0 background-image"
+            [style.background-image]="
+              'url(\'' + projectStructure.bgA.imageURL + '\')'
+            "
+          ></div>
+          <div class="d-flex flex-column">
+            <div class="small text-nowrap text-truncate">Top Layer</div>
+            <div class="figure-caption text-nowrap text-truncate">
+              {{ projectStructure.bgA.imageURL.split("/").pop() }}
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-1" (click)="onFileSelect('bgb')">
+          <div
+            class="flex-shrink-0 background-image"
+            [style.background-image]="
+              'url(\'' + projectStructure.bgB.imageURL + '\')'
+            "
+          ></div>
+          <div class="d-flex flex-column">
+            <div class="small text-nowrap text-truncate">Bottom Layer</div>
+            <div class="figure-caption text-nowrap text-truncate">
+              {{ projectStructure.bgB.imageURL.split("/").pop() }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </ng-container>
+
+    <ng-container *ngIf="selectedSprite">
+      {{ selectedSprite?.id }}
+      <div class="row">
+        <div class="col">
+          <div
+            style="
+              width: 100px;
+              height: 100px;
+              background-repeat: no-repeat;
+              background-size: cover;
+              image-rendering: pixelated;
+            "
+            [style.background-image]="
+              'url(\'' + selectedSprite?.animations[0].imageURL + '\')'
+            "
+            (click)="onFileSelect('sprite')"
+          ></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-auto" *ngFor="let param of params; index as i">
+          <div class="input-group mb-3">
+            <span class="input-group-text">{{ param }}</span>
+            <input
+              type="text"
+              class="form-control"
+              [(ngModel)]="selectedSprite?.params[i]"
+              (ngModelChange)="onParamChange()"
+            />
+          </div>
+        </div>
+        <div class="input-group mb-3">
+          <span class="input-group-text">Script</span>
+          <input
+            type="text"
+            disabled=""
+            class="form-control"
+            [(ngModel)]="selectedSprite?.script.name"
+          />
+        </div>
+      </div>
+    </ng-container>
+  </div>
+</div>
+
+<div class="modal fade" id="fileSelectModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5">Select file</h1>
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+      </div>
+      <div class="modal-body">
+        <app-asset-drawer
+          (fileSelected)="onFileSelected($event)"
+        ></app-asset-drawer>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Close
+        </button>
+        <button type="button" class="btn btn-primary">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>

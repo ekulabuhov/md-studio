@@ -1,0 +1,28 @@
+.scene-tree {
+  ::ng-deep {
+    .p-treenode-leaf > .p-treenode-content .p-tree-toggler {
+      display: none;
+    }
+
+    .p-treenode-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .p-tree.p-component.p-tree-selectable {
+      padding: 0;
+    }
+
+    .p-tree-wrapper {
+      height: 100vh;
+    }
+  }
+}
+
+.background-image {
+  width: 100px;
+  height: 100px;
+  background-repeat: no-repeat;
+  background-size: contain;
+  image-rendering: pixelated;
+}

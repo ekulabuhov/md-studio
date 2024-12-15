@@ -3,12 +3,14 @@ import { FIX32, fix32ToInt } from './maths';
 import { Sprite } from './sprite_eng';
 import { Camera } from './camera';
 import { Player } from './player';
+import { BoxCollision } from './vdp_tile';
 
 export class TrapsSaw {
   // Current position
   posX: fix32 = 0;
   posY: fix32 = 0;
   sprite: Sprite;
+  hitbox: BoxCollision;
   targetIndex = 1;
   pointsLength = 0;
   camera: Camera;
@@ -44,6 +46,6 @@ export class TrapsSaw {
 
   handleCollision(player: Player) {
     this.camera.screenShake(10);
-    player.die(this);
+    // player.die(this);
   }
 }

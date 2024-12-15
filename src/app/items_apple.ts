@@ -2,6 +2,7 @@ import { fix32, u16 } from './types';
 import { HIDDEN, Sprite } from './sprite_eng';
 import { FIX32 } from './maths';
 import { GameEntity } from './game_entity';
+import { BoxCollision } from './vdp_tile';
 
 const ANIM_COLLECTED = 1;
 
@@ -10,6 +11,7 @@ export class ItemsApple {
   posX: fix32 = 0;
   posY: fix32 = 0;
   sprite: Sprite;
+  hitbox: BoxCollision;
 
   constructor(sprite: Sprite, posX: u16, posY: u16) {
     this.sprite = sprite;
@@ -18,7 +20,10 @@ export class ItemsApple {
   }
 
   update() {
-    if (this.sprite.animInd == ANIM_COLLECTED && this.sprite.isAnimationDone()) {
+    if (
+      this.sprite.animInd == ANIM_COLLECTED &&
+      this.sprite.isAnimationDone()
+    ) {
       this.sprite.setVisibility(HIDDEN);
       // SPR_releaseSprite(this->sprite);
     }

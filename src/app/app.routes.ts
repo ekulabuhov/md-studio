@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { ResViewerComponent } from './res-viewer/res-viewer.component';
-import { CanvasComponent } from './canvas/canvas.component';
+import { MainComponent } from './main/main.component';
 
 export const routes: Routes = [
     {
@@ -9,6 +9,6 @@ export const routes: Routes = [
     },
     {
         path: '',
-        component: CanvasComponent
+        component: MainComponent
     }
 ];

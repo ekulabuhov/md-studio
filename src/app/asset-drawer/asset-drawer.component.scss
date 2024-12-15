@@ -6,6 +6,10 @@
 
 .icon-holder {
     min-height: 60px;
+
+    img {
+      object-fit: none;
+    }
 }
 
 .file-name {

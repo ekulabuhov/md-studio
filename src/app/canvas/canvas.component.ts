@@ -1,4 +1,12 @@
-import { Component, ElementRef, ViewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core';
 import { Player } from '../player';
 import { Camera } from '../camera';
 import { Sprite } from '../sprite_eng';
@@ -25,8 +33,6 @@ import {
 import { FormsModule } from '@angular/forms';
 import { fs } from '../fs_electron';
 import { fix32, u16 } from '../types';
-import { Modal } from 'bootstrap';
-import { AssetDrawerComponent } from '../asset-drawer/asset-drawer.component';
 import { Nostalgist } from 'nostalgist';
 import { getUnique } from '../utils';
 import {
@@ -34,10 +40,16 @@ import {
   compileRom,
   convertAnimationsIntoSpritesheet,
 } from '../compile_rom';
-import { TileMap } from '../vdp_tile';
-import { TrapsSaw } from '../traps_saw';
-import { ItemsApple } from '../items_apple';
-import { ItemsDust } from '../items_dust';
+import { BoxCollision, TileMap } from '../vdp_tile';
+import {
+  BG,
+  deleteEntity,
+  INJECT_BGA_TILEMAP,
+  INJECT_CAMERA,
+  projectStructure,
+  ProjectStructure,
+  SpriteDefinition,
+} from '../project';
 
 type DrawableImage = {
   id?: string;
@@ -54,55 +66,18 @@ type DrawableImage = {
   };
   darkenRect?: { x: number; y: number; w: number; h: number };
   type?: 'GameEntity';
+  hitbox?: BoxCollision;
+  selected?: boolean;
 };
 
 type DrawableImages = DrawableImage[];
-
-type Only<T, U> = {
-  [P in keyof T]: T[P];
-} & {
-  [P in keyof U]?: never;
-};
-
-type Either<T, U> = Only<T, U> | Only<U, T>;
-
-type BG = {
-  imageURL: string;
-  tiles: {
-    tileSize: number;
-  } & Either<{ coverMode: 'tile' }, { mapUrl: string }>;
-};
-
-type SpriteDefinition = {
-  id: string;
-  // Frame count in each animation. Will be calculated if not provided.
-  animFrameCount?: number[];
-  frameTimer: number;
-  frameWidth: number;
-  frameHeight: number;
-  animations: {
-    name: string;
-    imageURL?: string;
-    frames?: string[];
-  }[];
-  script;
-  params: any[];
-};
-
-type ProjectStructure = {
-  sceneWidth: number;
-  sceneHeight: number;
-  bgA: BG;
-  bgB: BG;
-  sprites: SpriteDefinition[];
-  collisionMapUrl: string;
-};
 
 export type GameEntity = {
   posX: fix32;
   posY: fix32;
   sprite: Sprite;
   hFlip?: boolean;
+  hitbox: BoxCollision;
   update();
   handleInput?(joyState: number);
   doJoyAction?(joy: u16, changed: u16, state: u16);
@@ -111,72 +86,11 @@ export type GameEntity = {
 
 const MD_SCREEN_WIDTH = 224;
 const MD_SCREEN_HEIGHT = 320;
-const INJECT_BGA_TILEMAP = '&bga_tilemap';
-const INJECT_CAMERA = '&camera';
-
-function newTrapSawSprite(params: any[]): SpriteDefinition {
-  return {
-    id: 'traps_saw',
-    frameTimer: 5,
-    frameWidth: 38,
-    frameHeight: 38,
-    animations: [
-      {
-        name: 'spin',
-        imageURL: 'app://project/PixelFrog/Traps/Saw/On (38x38).png',
-      },
-    ],
-    script: TrapsSaw,
-    params: [...params, INJECT_CAMERA],
-  };
-}
-
-function newApple(params): SpriteDefinition {
-  return {
-    id: 'items_apple',
-    frameTimer: 5,
-    frameWidth: 32,
-    frameHeight: 32,
-    animations: [
-      {
-        name: 'idle',
-        imageURL: 'app://project/PixelFrog/Items/Fruits/Apple.png',
-      },
-      {
-        name: 'collected',
-        imageURL: 'app://project/PixelFrog/Items/Fruits/Collected.png',
-      },
-    ],
-    script: ItemsApple,
-    params,
-  };
-}
-
-function newOrange(params): SpriteDefinition {
-  return {
-    id: 'items_orange',
-    frameTimer: 5,
-    frameWidth: 32,
-    frameHeight: 32,
-    animations: [
-      {
-        name: 'idle',
-        imageURL: 'app://project/PixelFrog/Items/Fruits/Orange.png',
-      },
-      {
-        name: 'collected',
-        imageURL: 'app://project/PixelFrog/Items/Fruits/Collected.png',
-      },
-    ],
-    script: ItemsApple,
-    params,
-  };
-}
 
 @Component({
   selector: 'app-canvas',
   standalone: true,
-  imports: [FormsModule, AssetDrawerComponent],
+  imports: [FormsModule],
   templateUrl: './canvas.component.html',
   styleUrl: './canvas.component.scss',
 })
@@ -185,133 +99,14 @@ export class CanvasComponent {
   selectedTileNet?: { x: number; y: number; w: number; h: number };
   selectedTiles: { tileX: number; tileY: number; tileW: number; tileH: number };
   Math = Math;
-  projectStructure: ProjectStructure = {
-    collisionMapUrl: 'tile_map.json',
-    sceneWidth: 512,
-    sceneHeight: 256,
-    bgA: {
-      imageURL: 'PixelFrog/Terrain/Terrain (16x16).png',
-      tiles: {
-        tileSize: 8,
-        mapUrl: 'tile_map.json',
-      },
-    },
-    bgB: {
-      imageURL: 'app://project/PixelFrog/Background/Blue.png',
-      tiles: {
-        tileSize: 64,
-        coverMode: 'tile',
-      },
-    },
-    sprites: [
-      {
-        id: 'smoke',
-        frameTimer: 5,
-        frameWidth: 32,
-        frameHeight: 32,
-        animations: [
-          {
-            name: 'idle',
-            frames: [
-              'app://project/FXPack_nyknck/Smoke/FX002/FX002_05.png',
-              'app://project/FXPack_nyknck/Smoke/FX002/FX002_06.png',
-              'app://project/FXPack_nyknck/Smoke/FX002/FX002_07.png',
-              'app://project/FXPack_nyknck/Smoke/FX002/FX002_08.png',
-            ],
-          },
-        ],
-        script: ItemsDust,
-        params: [],
-      },
-      {
-        id: 'player',
-        frameTimer: 5,
-        frameWidth: 32,
-        frameHeight: 32,
-        animations: [
-          {
-            name: 'idle',
-            imageURL:
-              'app://project/PixelFrog/Main Characters/Mask Dude/Idle (32x32).png',
-          },
-          {
-            name: 'run',
-            imageURL:
-              'app://project/PixelFrog/Main Characters/Mask Dude/Run (32x32).png',
-          },
-          {
-            name: 'jump',
-            imageURL:
-              'app://project/PixelFrog/Main Characters/Mask Dude/Jump (32x32).png',
-          },
-          {
-            name: 'fall',
-            imageURL:
-              'app://project/PixelFrog/Main Characters/Mask Dude/Fall (32x32).png',
-          },
-          {
-            name: 'double_jump',
-            imageURL:
-              'app://project/PixelFrog/Main Characters/Mask Dude/Double Jump (32x32).png',
-          },
-        ],
-        script: Player,
-        params: [INJECT_BGA_TILEMAP, '&smoke'],
-      },
-      newTrapSawSprite([
-        [
-          [84, 68],
-          [196, 68],
-          [196, 132],
-          [84, 132],
-        ],
-        4,
-      ]),
-      newTrapSawSprite([
-        [
-          [196, 132],
-          [84, 132],
-          [84, 68],
-          [196, 68],
-        ],
-        4,
-      ]),
-      newTrapSawSprite([
-        [
-          [308, -12],
-          [308, 68],
-        ],
-        2,
-      ]),
-      newTrapSawSprite([
-        [
-          [340, 84],
-          [452, 84],
-        ],
-        2,
-      ]),
-      newApple([440, 200]),
-      newApple([440, 168]),
-      newApple([440, 136]),
-      newApple([408, 200]),
-      newApple([408, 168]),
-      newApple([408, 136]),
-      newApple([376, 168]),
-      newApple([360, 136]),
-      newOrange([96, 40]),
-      newOrange([128, 40]),
-      newOrange([160, 40]),
-      newOrange([192, 40]),
-      newOrange([176, 8]),
-      newOrange([144, 8]),
-      newOrange([112, 8]),
-    ],
-  };
+  projectStructure: ProjectStructure = projectStructure;
   /** [y][x]: tile_idx */
   coordsToTile: number[][];
   /** [tile_idx]: { x, y }[] */
   tileToCoords: { [key: number]: { x: number; y: number }[] } = {};
   drawCollisionMap = true;
+  @Input() selectedEntityIndex: number;
+  @Output() entitySelect = new EventEmitter<number>();
 
   async onPlayClick() {
     this.nostalgist = await Nostalgist.launch({
@@ -323,25 +118,24 @@ export class CanvasComponent {
     });
   }
 
-  modal: Modal;
-  async onFileSelected(fileUrl: string) {
-    this.modal.hide();
-    this.projectStructure.bgB.imageURL = fileUrl;
-    const imgBg = await this.loadImage(fileUrl);
+  async onFileSelected(type: 'sprite' | 'bga' | 'bgb') {
+    if (type === 'bga' || type === 'bgb') {
+      const fileUrl = (type === 'bga' ? this.projectStructure.bgA : this.projectStructure.bgB ).imageURL;
+      const img = await this.loadImage(fileUrl);
 
-    this.images[0] = {
-      img: imgBg,
-      offset: { x: 0, y: 0 },
-      tiles: {
-        tileSize: 64,
-        coverMode: 'tile',
-      },
-    };
-  }
+      this.images[type === 'bga' ? 1 : 0].img = img;
+    } else {
+      const sprite = projectStructure.sprites[this.selectedEntityIndex];
+      const entity = await this.spriteToGameEntity(
+        projectStructure,
+        sprite,
+        {}
+      );
+      this.entities[this.selectedEntityIndex] = entity;
+      this.gameEntitiesToDrawableImages();
+    }
 
-  onBgImgUrlSelect() {
-    this.modal = new Modal('#exampleModal');
-    this.modal.show();
+    this.drawImages(this.images);
   }
 
   shouldAnimate = false;
@@ -371,8 +165,13 @@ export class CanvasComponent {
   clipViewport = false;
   drawGrid = false;
   camera: Camera;
-  mouseMode: 'collision' | 'panning' | 'drawing' | 'none' | 'selecting' =
-    'none';
+  mouseMode:
+    | 'collision'
+    | 'panning'
+    | 'drawing'
+    | 'none'
+    | 'selecting'
+    | 'moving_entity' = 'none';
 
   constructor(private el: ElementRef<HTMLDivElement>) {
     let scrollHistory: { x: number; y: number; timestamp: number }[] = [];
@@ -390,6 +189,11 @@ export class CanvasComponent {
     });
 
     el.nativeElement.addEventListener('mousedown', (event) => {
+      // Avoids handling clicks on modal
+      if (event.target !== this.canvas.nativeElement) {
+        return;
+      }
+
       // cmd key on MacOS
       if (event.metaKey || event.shiftKey) {
         this.mouseMode = 'collision';
@@ -419,6 +223,23 @@ export class CanvasComponent {
           tileMapImage.darkenRect = this.selectedTileNet;
         }
       } else {
+        // Check entity under cursor
+        const cursor = {
+          posX: FIX32(this.xCoord),
+          posY: FIX32(this.yCoord),
+          hitbox: { x: 0, y: 0, w: 1, h: 1 },
+        } as GameEntity;
+
+        const entityIndex = this.entities.findIndex((e) =>
+          this.checkBoxCollision(e, cursor)
+        );
+
+        if (entityIndex !== -1) {
+          this.entitySelect.emit(entityIndex);
+          this.mouseMode = 'moving_entity';
+          return;
+        }
+
         this.mouseMode = 'panning';
       }
     });
@@ -471,10 +292,24 @@ export class CanvasComponent {
             tileY++;
             tileX -= this.selectedTiles.tileW / image.tiles.tileSize;
           }
+
+          this.drawImages(this.images);
         }
       } else if (event.buttons === 1 && this.mouseMode === 'selecting') {
         this.selectedTileNet.w = this.xCoord - this.selectedTileNet.x;
         this.selectedTileNet.h = this.yCoord - this.selectedTileNet.y;
+        this.drawImages(this.images);
+      } else if (this.mouseMode === 'moving_entity') {
+        const transform = this.ctx.getTransform();
+        const scale = transform.a;
+        this.entities[this.selectedEntityIndex].posX += FIX32(
+          event.movementX / scale
+        );
+        this.entities[this.selectedEntityIndex].posY += FIX32(
+          event.movementY / scale
+        );
+        this.gameEntitiesToDrawableImages();
+        this.drawImages(this.images);
       }
 
       if (this.mouseMode !== 'panning') {
@@ -509,6 +344,7 @@ export class CanvasComponent {
         this.selectedTiles = this.getSelectedTiles(x, y, w, h, image.offset);
 
         this.selectedTileNet = undefined;
+        this.drawImages(this.images);
       }
 
       // Find the mouse position 100ms ago to calculate inertia
@@ -674,6 +510,20 @@ export class CanvasComponent {
         }
       }
     });
+
+    deleteEntity.subscribe((i) => {
+      this.entities.splice(i, 1);
+      this.gameEntitiesToDrawableImages();
+      this.drawImages(this.images);
+    });
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['selectedEntityIndex'].currentValue >= 0) {
+      // Sets drawableImage.selected = true that will paint it in orange
+      this.gameEntitiesToDrawableImages();
+      this.drawImages(this.images);
+    }
   }
 
   deleteSelectedTiles() {
@@ -750,28 +600,36 @@ export class CanvasComponent {
         entity.sprite.update();
 
         // Box collision
-        if (
-          i > 0 &&
-          entity.posX < player.posX + FIX32(player.sprite.definition.w) &&
-          entity.posX + FIX32(entity.sprite.definition.w) > player.posX &&
-          entity.posY < player.posY + FIX32(player.sprite.definition.h) &&
-          entity.posY + FIX32(entity.sprite.definition.h) > player.posY
-        ) {
+        if (i > 0 && this.checkBoxCollision(entity, player)) {
           entity.handleCollision?.(player);
           player.handleCollision?.(entity);
         }
       }
 
-      this.populateImagesWithEntities();
+      this.gameEntitiesToDrawableImages();
 
       this.drawImages(this.images);
     }
   }
 
-  private populateImagesWithEntities() {
+  private checkBoxCollision(a: GameEntity, b: GameEntity) {
+    const bRight = b.posX + FIX32(b.hitbox.x + b.hitbox.w);
+    const bLeft = b.posX + FIX32(b.hitbox.x);
+    const bBottom = b.posY + FIX32(b.hitbox.y + b.hitbox.h);
+    const bTop = b.posY + FIX32(b.hitbox.y);
+
+    return (
+      a.posX + FIX32(a.hitbox.x) < bRight &&
+      a.posX + FIX32(a.hitbox.x + a.hitbox.w) > bLeft &&
+      a.posY + FIX32(a.hitbox.y) < bBottom &&
+      a.posY + FIX32(a.hitbox.y + a.hitbox.h) > bTop
+    );
+  }
+
+  private gameEntitiesToDrawableImages() {
     this.images = this.images.filter((img) => img.type !== 'GameEntity');
 
-    for (const entity of this.entities) {
+    for (const [index, entity] of this.entities.entries()) {
       if (this.camera.follows === entity) {
         // then set camera from player position
         this.camera.centerOn(fix32ToInt(entity.posX), fix32ToInt(entity.posY));
@@ -807,6 +665,8 @@ export class CanvasComponent {
         },
         hFlip: entity.hFlip,
         type: 'GameEntity',
+        hitbox: entity.hitbox,
+        selected: index === this.selectedEntityIndex,
       });
     }
   }
@@ -839,11 +699,17 @@ export class CanvasComponent {
         }
       }
     }
-    this.images = [bgB, bgA];
+    bgA.id = 'tileMap';
+    this.images = [
+      bgB,
+      bgA,
+      // Draws a tileset below the scene
+      { id: 'tileSet', img: bgA.img, offset: { x: 0, y: 272 } },
+    ];
 
     setInterval(() => {
       storeCollisionMap(this.collisionMap);
-      // fs.writeFile('tile_map.json', JSON.stringify(tileMap));
+      fs.writeFile('tile_map.json', JSON.stringify(bgA.tiles.map));
     }, 10000);
 
     this.camera = new Camera(
@@ -871,7 +737,7 @@ export class CanvasComponent {
     // Initial zoom
     this.zoomTo(0, 0, canvas.width / this.projectStructure.sceneWidth);
 
-    this.populateImagesWithEntities();
+    this.gameEntitiesToDrawableImages();
     this.drawImages(this.images);
     this.animate();
   }
@@ -943,7 +809,18 @@ export class CanvasComponent {
     const gameEntity = new (Function.prototype.bind.apply(
       spriteDefinition.script,
       [null, ...params]
-    ))();
+    ))() as GameEntity;
+
+    if (spriteDefinition.hitbox) {
+      gameEntity.hitbox = spriteDefinition.hitbox;
+    } else {
+      gameEntity.hitbox = {
+        x: 0,
+        y: 0,
+        h: spriteDefinition.frameHeight,
+        w: spriteDefinition.frameWidth,
+      };
+    }
 
     gameEntities[spriteDefinition.id] = gameEntity;
 
@@ -988,13 +865,16 @@ export class CanvasComponent {
     });
   }
 
-  async onReloadScriptsClick() {
+  async onReloadScriptsClick(i = 0) {
     const player = await this.spriteToGameEntity(
       this.projectStructure,
-      this.projectStructure.sprites[0],
+      this.projectStructure.sprites[i],
       {}
     );
-    this.entities[0] = player;
+    this.entities[i] = player;
+
+    this.gameEntitiesToDrawableImages();
+    this.drawImages(this.images);
   }
 
   splitIntoTiles(canvas: OffscreenCanvas) {
@@ -1068,6 +948,8 @@ export class CanvasComponent {
       skip,
       tiles,
       darkenRect,
+      hitbox,
+      selected,
     } of imgs) {
       if (skip) {
         continue;
@@ -1092,13 +974,15 @@ export class CanvasComponent {
           source.h
         );
         // Draw bounding box (hitbox) around entities
-        ctx.strokeRect(0 + (hFlip ? -source.w : 0), 0, source.w, source.h);
-        // Draw a ground sensor
-        ctx.beginPath();
-        ctx.strokeStyle = 'limegreen';
-        ctx.moveTo(hFlip ? -24 : 24, 24);
-        ctx.lineTo(hFlip ? -24 : 24, 40);
-        ctx.stroke();
+        ctx.strokeStyle = selected ? 'orange' : 'limegreen';
+        ctx.strokeRect(
+          hitbox.x + (hFlip ? -source.w : 0),
+          hitbox.y,
+          hitbox.w,
+          hitbox.h
+        );
+        // Draw bounding box around animation frame
+        // ctx.strokeRect(0 + (hFlip ? -source.w : 0), 0, source.w, source.h);
       } else if (tiles) {
         if (tiles.coverMode === 'tile') {
           // this.scrollOffsetY += 0.1;
@@ -1299,17 +1183,19 @@ export class CanvasComponent {
   private async compactTileMap() {
     // bgA layer containing tileMap
     const { img, tiles } = this.images[1];
+
     /** { originalTileId: compactTileId } e.g. { 402: 1 } */
     const compactIdMap: { [originalTileId: number]: number } = tiles.map
       .flat()
       .filter(getUnique)
-      .reduce((acc, val) => {
-        acc[val] = Object.keys(acc).length;
-        return acc;
-      }, {});
-
-    // @ts-ignore
-    compactIdMap[null] = 0;
+      .filter((el) => el !== null)
+      .reduce(
+        (acc, val) => {
+          acc[val] = Object.keys(acc).length;
+          return acc;
+        },
+        { null: 0 }
+      );
 
     // Deep copy so we can modify it
     const tileMap: number[][] = JSON.parse(JSON.stringify(tiles.map));

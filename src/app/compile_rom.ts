@@ -10,6 +10,7 @@ import {
   replaceColor,
   snakeCaseToPascalCase,
 } from './utils';
+import { BoxCollision } from './vdp_tile';
 
 type Sprite = {
   id: string;
@@ -23,6 +24,7 @@ type Sprite = {
   paletteIndex?: number;
   script;
   params: any[];
+  hitbox?: BoxCollision;
 };
 
 export type CompileData = {
@@ -91,7 +93,7 @@ export async function compileRom(compileData: CompileData) {
     #endif // _RES_H_`;
   fs.writeFile('res/res.h', hFileContents);
 
-  const instanceNames: { handlesCollisions: boolean, name: string }[] = [];
+  const instanceNames: { handlesCollisions: boolean; name: string }[] = [];
   const instanceGroups: { key: string; min: number; max?: number }[] = [];
   const mainFileContents = `#include <genesis.h>
 #include "res.h"
@@ -156,19 +158,34 @@ int main(bool hard) {
         );
         const isSlaveSprite = masterSpriteIndex !== i;
         // Master sprite is only required if you have more than one sprite of the same type
-        const hasMasterSprite = compileData.sprites.filter(s => s.id === sprite.id).length > 1;
+        const hasMasterSprite =
+          compileData.sprites.filter((s) => s.id === sprite.id).length > 1;
         const isMasterSprite = !isSlaveSprite && hasMasterSprite;
 
         if (isMasterSprite) {
           output.push(
-            `Sprite *${sprite.id}_master_sprite = SPR_addSprite(&${sprite.id}_sprite_def, 0, 0, TILE_ATTR(PAL${sprite.paletteIndex}, TRUE, FALSE, FALSE));`,
+            `Sprite *${sprite.id}_master_sprite = SPR_addSprite(&${sprite.id}_sprite_def, 0, 0, TILE_ATTR(PAL${sprite.paletteIndex}, TRUE, FALSE, FALSE));`
           );
           // Hide master sprite off screen so it can't be affected by player actions
-          output.push(`SPR_setPosition(${sprite.id}_master_sprite, -128, -128);`);
+          output.push(
+            `SPR_setPosition(${sprite.id}_master_sprite, -128, -128);`
+          );
+
+          if (sprite.hitbox) {
+            const { x, y, w, h } = sprite.hitbox;
+            output.push(
+              `BoxCollision ${sprite.id}_master_hitbox = {.x = ${x}, .y = ${y}, .w = ${w}, .h = ${h}};`
+            );
+          } else {
+            // Use sprite dimensions if hitbox is not defined
+            output.push(
+              `BoxCollision ${sprite.id}_master_hitbox = {.x = 0, .y = 0, .w = ${sprite.frameWidth}, .h = ${sprite.frameHeight} };`
+            );
+          }
         }
 
         output.push(
-          `Sprite *${sprite.id}_${i}_sprite = SPR_addSprite(&${sprite.id}_sprite_def, 0, 0, TILE_ATTR(PAL${sprite.paletteIndex}, TRUE, FALSE, FALSE));`,
+          `Sprite *${sprite.id}_${i}_sprite = SPR_addSprite(&${sprite.id}_sprite_def, 0, 0, TILE_ATTR(PAL${sprite.paletteIndex}, TRUE, FALSE, FALSE));`
         );
         if (hasMasterSprite) {
           output.push(
@@ -214,12 +231,14 @@ int main(bool hard) {
             );
             return `paramPtr_${i}`;
           } else if (typeof param === 'string' && param[0] === '&') {
-            const spriteRefIndex = compileData.sprites.findIndex(sprite => '&' + sprite.id === param);
+            const spriteRefIndex = compileData.sprites.findIndex(
+              (sprite) => '&' + sprite.id === param
+            );
             if (spriteRefIndex !== -1) {
               return '&' + instanceNames[spriteRefIndex].name;
             }
           }
-          
+
           return param;
         });
 
@@ -229,6 +248,17 @@ int main(bool hard) {
         output.push(
           `${className}_constructor(&${instanceName}, ${params.join(', ')});`
         );
+
+        if (hasMasterSprite) {
+          output.push(`${instanceName}.hitbox = &${sprite.id}_master_hitbox;`);
+        } else if (sprite.hitbox) {
+          const { x, y, w, h } = sprite.hitbox;
+          output.push(
+            `BoxCollision ${sprite.id}_hitbox = {.x = ${x}, .y = ${y}, .w = ${w}, .h = ${h}};`
+          );
+          output.push(`${instanceName}.hitbox = &${sprite.id}_hitbox;`);
+        }
+
         return output.join('\n\t');
       })
       .join('\n\n\t')}
@@ -238,7 +268,9 @@ int main(bool hard) {
     
     JOY_setEventHandler(joyEvent);
 
-    void* sprites[] = {${instanceNames.map(IN => IN.handlesCollisions ? '&' + IN.name : 'NULL').join(',')}};
+    void* sprites[] = {${instanceNames
+      .map((IN) => (IN.handlesCollisions ? '&' + IN.name : 'NULL'))
+      .join(',')}};
 
     while (TRUE)
     {
@@ -280,6 +312,11 @@ int main(bool hard) {
         })
         .join('\n\n      ')}
 
+      const playerRight = player.posX + FIX32(player.hitbox->x + player.hitbox->w);
+      const playerLeft = player.posX + FIX32(player.hitbox->x);
+      const playerBottom = player.posY + FIX32(player.hitbox->y + player.hitbox->h);
+      const playerTop = player.posY + FIX32(player.hitbox->y);
+
       for (size_t i = 0; i < sizeof(sprites) / sizeof(sprites[0]); i++)
       {
           if (sprites[i] == NULL) {
@@ -287,10 +324,10 @@ int main(bool hard) {
           }
 
           GameEntity *entity = (GameEntity*)sprites[i];
-          if (entity->posX < player.posX + FIX32(player.sprite->definition->w) &&
-              entity->posX + FIX32(entity->sprite->definition->w) > player.posX &&
-              entity->posY < player.posY + FIX32(player.sprite->definition->h) &&
-              entity->posY + FIX32(entity->sprite->definition->h) > player.posY)
+          if (entity->posX + FIX32(entity->hitbox->x) < playerRight &&
+              entity->posX + FIX32(entity->hitbox->x + entity->hitbox->w) > playerLeft &&
+              entity->posY + FIX32(entity->hitbox->y) < playerBottom &&
+              entity->posY + FIX32(entity->hitbox->y + entity->hitbox->h) > playerTop)
           {
             ${instanceGroups
               .map((ig) => {

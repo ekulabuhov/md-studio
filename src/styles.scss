@@ -1,1 +1,17 @@
 /* You can add global styles to this file, and also import other style files */
+@layer bootstrap-reboot, primeng;
+
+@layer bootstrap-reboot {
+  @import "bootstrap/scss/bootstrap";
+}
+
+@import "primeng/resources/themes/aura-light-blue/theme";
+@import "primeng/resources/primeng";
+@import "primeicons/primeicons";
+
+// EK: add more intensity, default highlight is too subtle
+.p-tree .p-tree-container .p-treenode .p-treenode-content.p-highlight {
+  background: #eff6ff;
+  outline: 1px solid var(--p-focus-ring-color);
+  outline-offset: -2px;
+}
